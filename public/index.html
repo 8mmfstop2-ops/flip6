@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Show Card Example</title>
+  <style>
+    #card-img {
+      display: none;         /* hidden at the start */
+      max-width: 300px;
+      margin-top: 20px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <button id="show-card-btn">Show Card</button>
+
+  <!-- Image is in subfolder "cards/0.png" relative to this HTML file -->
+  <img id="card-img" src="cards/0.png" alt="Card image" />
+
+  <script>
+    const button = document.getElementById('show-card-btn');
+    const img = document.getElementById('card-img');
+
+    button.addEventListener('click', () => {
+      img.style.display = 'block';   // show the image
+    });
+  </script>
+</body>
+</html>

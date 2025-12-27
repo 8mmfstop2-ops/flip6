@@ -93,10 +93,12 @@ function getValue(card) {
 }
 
 // Action = anything NOT between 0 and 12
-function isAction(card) {
-  const value = getValue(card);
-  const num = parseInt(value, 10);
-  return isNaN(num) || num < 0 || num > 12;
+function isAction(value) {
+  // Pure number 0–12 = number card
+  if (/^(?:[0-9]|1[0-2])$/.test(value)) {
+    return false;
+  }
+  return true; // Everything else is an action card
 }
 
 
@@ -108,7 +110,8 @@ function advancedActionSpacing(deck) {
   const actionCards = [];
 
   for (const card of deck) {
-    if (isAction(card)) actionCards.push(card);
+    const value = getValue(card);
+    if (isAction(value)) actionCards.push(card);
     else numberCards.push(card);
   }
 
@@ -117,27 +120,30 @@ function advancedActionSpacing(deck) {
 
   if (actionCards.length === 0) return numberCards;
 
+  // randomize starting offset
+  const offset = Math.floor(Math.random() * actionCards.length);
+  const rotated = actionCards.slice(offset).concat(actionCards.slice(0, offset));
+
   const result = [];
-  const gaps = actionCards.length + 1;
+  const gaps = rotated.length + 1;
   const gapSize = Math.ceil(numberCards.length / gaps);
 
   let numIndex = 0;
   let actIndex = 0;
 
   for (let g = 0; g < gaps; g++) {
-    // Insert number block
     for (let i = 0; i < gapSize && numIndex < numberCards.length; i++) {
       result.push(numberCards[numIndex++]);
     }
 
-    // Insert one action card
-    if (actIndex < actionCards.length) {
-      result.push(actionCards[actIndex++]);
+    if (actIndex < rotated.length) {
+      result.push(rotated[actIndex++]);
     }
   }
 
   return result;
 }
+
 
 
 // ------------------------------------------------------------
@@ -428,6 +434,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 
 

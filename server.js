@@ -80,12 +80,44 @@ function forceStreak(deck, length) {
   return false;
 }
 
+// spread ActionCards shuffle
+function spreadActionCards(deck) {
+  const actionValues = new Set([
+    "2x", "4+", "5+", "6-", "Freeze",
+    "Second Chance", "Swap", "Take 3"
+  ]);
+
+  const actions = deck.filter(v => actionValues.has(v));
+  const numbers = deck.filter(v => !actionValues.has(v));
+
+  const spacedDeck = [];
+  const gap = Math.floor(numbers.length / (actions.length + 1));
+
+  let actionIndex = 0;
+  let numberIndex = 0;
+
+  for (let i = 0; i < actions.length + numbers.length; i++) {
+    if (i > 0 && i % (gap + 1) === 0 && actionIndex < actions.length) {
+      spacedDeck.push(actions[actionIndex++]);
+    } else if (numberIndex < numbers.length) {
+      spacedDeck.push(numbers[numberIndex++]);
+    }
+  }
+
+  return spacedDeck;
+}
+
+
 // Hybrid shuffle
 function hybridShuffle(deck, streakLengths = [2, 3]) {
   fisherYates(deck);
+
   for (const length of streakLengths) {
     forceStreak(deck, length);
   }
+
+  deck = spreadActionCards(deck);
+
   return deck;
 }
 
@@ -208,4 +240,5 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 

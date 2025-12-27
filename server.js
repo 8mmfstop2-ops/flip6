@@ -84,12 +84,21 @@ function forceStreak(deck, length) {
 // Guarantees no clumping unless mathematically unavoidable
 
 // ------------------------------------------------------------
-//  ACTION DETECTION
+//  HELPERS
 // ------------------------------------------------------------
-function isAction(value) {
+
+// Deck items may be strings or objects { value: "Freeze" }
+function getValue(card) {
+  return typeof card === "string" ? card : card.value;
+}
+
+// Action = anything NOT between 0 and 12
+function isAction(card) {
+  const value = getValue(card);
   const num = parseInt(value, 10);
   return isNaN(num) || num < 0 || num > 12;
 }
+
 
 // ------------------------------------------------------------
 //  ADVANCED ACTION SPACING (EVEN DISTRIBUTION)
@@ -98,12 +107,11 @@ function advancedActionSpacing(deck) {
   const numberCards = [];
   const actionCards = [];
 
-  for (const value of deck) {
-    if (isAction(value)) actionCards.push(value);
-    else numberCards.push(value);
+  for (const card of deck) {
+    if (isAction(card)) actionCards.push(card);
+    else numberCards.push(card);
   }
 
-  // Shuffle both groups independently
   fisherYates(numberCards);
   fisherYates(actionCards);
 
@@ -131,54 +139,60 @@ function advancedActionSpacing(deck) {
   return result;
 }
 
+
 // ------------------------------------------------------------
 //  RULE: IDENTICAL ACTION CARDS MUST BE ≥ 4 SPACES APART
 // ------------------------------------------------------------
-function enforceActionSpacingRules(deck) {
+function fixIdenticalActions(deck) {
+  let changed = false;
+
   for (let i = 0; i < deck.length; i++) {
+    const value = getValue(deck[i]);
     if (!isAction(deck[i])) continue;
 
     // Check next 4 positions
     for (let j = 1; j <= 4 && i + j < deck.length; j++) {
-      if (deck[i] === deck[i + j]) {
+      if (getValue(deck[i + j]) === value) {
 
         // Find a swap candidate further away
         let swapIndex = -1;
 
         for (let k = i + 5; k < deck.length; k++) {
-          if (deck[k] !== deck[i]) {
+          if (getValue(deck[k]) !== value) {
             swapIndex = k;
             break;
           }
         }
 
-        // Swap if possible
         if (swapIndex !== -1) {
           const temp = deck[i + j];
           deck[i + j] = deck[swapIndex];
           deck[swapIndex] = temp;
+          changed = true;
         }
       }
     }
   }
 
-  return deck;
+  return changed;
 }
+
 
 // ------------------------------------------------------------
 //  RULE: NO TWO "6-" CARDS NEXT TO EACH OTHER
 // ------------------------------------------------------------
-function preventSequentialSixMinus(deck) {
+function fixSixMinus(deck) {
+  let changed = false;
   const target = "6-";
 
   for (let i = 0; i < deck.length - 1; i++) {
-    if (deck[i] === target && deck[i + 1] === target) {
+    if (getValue(deck[i]) === target && getValue(deck[i + 1]) === target) {
 
       let swapIndex = -1;
 
       // Look forward
       for (let j = i + 2; j < deck.length; j++) {
-        if (deck[j] !== target) {
+        if (getValue(deck[j]) !== target) {
           swapIndex = j;
           break;
         }
@@ -187,7 +201,7 @@ function preventSequentialSixMinus(deck) {
       // Look backward
       if (swapIndex === -1) {
         for (let j = i - 1; j >= 0; j--) {
-          if (deck[j] !== target) {
+          if (getValue(deck[j]) !== target) {
             swapIndex = j;
             break;
           }
@@ -198,26 +212,29 @@ function preventSequentialSixMinus(deck) {
         const temp = deck[i + 1];
         deck[i + 1] = deck[swapIndex];
         deck[swapIndex] = temp;
+        changed = true;
       }
     }
   }
 
-  return deck;
+  return changed;
 }
+
 
 // ------------------------------------------------------------
 //  RULE: "TAKE 3" CANNOT APPEAR IN FIRST 8 CARDS
 // ------------------------------------------------------------
-function preventTake3InFirst8(deck) {
+function fixTake3(deck) {
+  let changed = false;
   const target = "Take 3";
 
   for (let i = 0; i < 8; i++) {
-    if (deck[i] === target) {
+    if (getValue(deck[i]) === target) {
 
       let swapIndex = -1;
 
       for (let j = 8; j < deck.length; j++) {
-        if (deck[j] !== target) {
+        if (getValue(deck[j]) !== target) {
           swapIndex = j;
           break;
         }
@@ -227,39 +244,51 @@ function preventTake3InFirst8(deck) {
         const temp = deck[i];
         deck[i] = deck[swapIndex];
         deck[swapIndex] = temp;
+        changed = true;
       }
     }
   }
 
+  return changed;
+}
+
+
+// ------------------------------------------------------------
+//  FIX-UNTIL-STABLE LOOP
+// ------------------------------------------------------------
+function enforceAllRules(deck) {
+  let changed = true;
+  let safety = 0;
+
+  while (changed && safety < 20) {
+    changed = false;
+    safety++;
+
+    if (fixIdenticalActions(deck)) changed = true;
+    if (fixSixMinus(deck)) changed = true;
+    if (fixTake3(deck)) changed = true;
+  }
+
   return deck;
 }
+
 
 // ------------------------------------------------------------
 //  FINAL HYBRID SHUFFLE PIPELINE
 // ------------------------------------------------------------
 function hybridShuffle(deck, streakLengths = [2, 3]) {
-  // Base shuffle
   fisherYates(deck);
 
-  // Apply streak rules
   for (const length of streakLengths) {
     forceStreak(deck, length);
   }
 
-  // Advanced spacing
   deck = advancedActionSpacing(deck);
-
-  // Identical action spacing rule
-  deck = enforceActionSpacingRules(deck);
-
-  // No two 6- next to each other
-  deck = preventSequentialSixMinus(deck);
-
-  // Take 3 cannot be in first 8 cards
-  deck = preventTake3InFirst8(deck);
+  deck = enforceAllRules(deck);
 
   return deck;
 }
+
 
 
 
@@ -383,6 +412,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 
 

@@ -81,31 +81,52 @@ function forceStreak(deck, length) {
 }
 
 // spread ActionCards shuffle
+// Guarantees no clumping unless mathematically unavoidable
 function spreadActionCards(deck) {
-  const actionValues = new Set([
-    "2x", "4+", "5+", "6-", "Freeze",
-    "Second Chance", "Swap", "Take 3"
-  ]);
+  // Split into number cards and action cards
+  const numberCards = [];
+  const actionCards = [];
 
-  const actions = deck.filter(v => actionValues.has(v));
-  const numbers = deck.filter(v => !actionValues.has(v));
+  for (const value of deck) {
+    const num = parseInt(value, 10);
+    const isNumber = !isNaN(num) && num >= 0 && num <= 12;
 
-  const spacedDeck = [];
-  const gap = Math.floor(numbers.length / (actions.length + 1));
+    if (isNumber) numberCards.push(value);
+    else actionCards.push(value);
+  }
 
-  let actionIndex = 0;
-  let numberIndex = 0;
+  // Shuffle both groups independently
+  fisherYates(numberCards);
+  fisherYates(actionCards);
 
-  for (let i = 0; i < actions.length + numbers.length; i++) {
-    if (i > 0 && i % (gap + 1) === 0 && actionIndex < actions.length) {
-      spacedDeck.push(actions[actionIndex++]);
-    } else if (numberIndex < numbers.length) {
-      spacedDeck.push(numbers[numberIndex++]);
+  // If no action cards, nothing to do
+  if (actionCards.length === 0) return numberCards;
+
+  const result = [];
+  const gaps = actionCards.length + 1;
+
+  // Calculate ideal spacing
+  const gapSize = Math.ceil(numberCards.length / gaps);
+
+  let numIndex = 0;
+  let actIndex = 0;
+
+  // Build final deck
+  for (let g = 0; g < gaps; g++) {
+    // Insert a block of number cards
+    for (let i = 0; i < gapSize && numIndex < numberCards.length; i++) {
+      result.push(numberCards[numIndex++]);
+    }
+
+    // Insert ONE action card after each block (except the last gap)
+    if (actIndex < actionCards.length) {
+      result.push(actionCards[actIndex++]);
     }
   }
 
-  return spacedDeck;
+  return result;
 }
+
 
 
 // Hybrid shuffle
@@ -116,10 +137,12 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
     forceStreak(deck, length);
   }
 
+  // high-quality action spacing
   deck = spreadActionCards(deck);
 
   return deck;
 }
+
 
 /* ---------------- APIs ---------------- */
 
@@ -240,5 +263,6 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 

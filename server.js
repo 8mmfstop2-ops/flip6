@@ -100,12 +100,10 @@ function isAction(value) {
   }
   return true; // Everything else is an action card
 }
-
-
-// ------------------------------------------------------------
-//  ADVANCED ACTION SPACING (EVEN DISTRIBUTION)
-// ------------------------------------------------------------
-function advancedActionSpacing(deck) {
+function newHybridShuffle(deck) {
+  // -----------------------------
+  // 1. Split deck into groups
+  // -----------------------------
   const numberCards = [];
   const actionCards = [];
 
@@ -115,187 +113,64 @@ function advancedActionSpacing(deck) {
     else numberCards.push(card);
   }
 
+  // -----------------------------
+  // 2. Shuffle each group
+  // -----------------------------
   fisherYates(numberCards);
+  
+  // Apply streaks to number cards
+  for (const length of streakLengths) {
+    forceStreak(numberCards, length);
+  }
+
+  
   fisherYates(actionCards);
 
-  if (actionCards.length === 0) return numberCards;
+  // Limit action cards to max 14
+  const maxActions = 14;
+  const actionsToUse = actionCards.slice(0, maxActions);
 
-  // randomize starting offset
-  const offset = Math.floor(Math.random() * actionCards.length);
-  const rotated = actionCards.slice(offset).concat(actionCards.slice(0, offset));
+  // -----------------------------
+  // 3. Choose random starting index (>= 7)
+  // -----------------------------
+  const minStart = 7;
+  const maxStart = numberCards.length - 1;
+  let insertPos = Math.floor(Math.random() * (maxStart - minStart + 1)) + minStart;
 
-  const result = [];
-  const gaps = rotated.length + 1;
-  const gapSize = Math.ceil(numberCards.length / gaps);
+  // -----------------------------
+  // 4. Insert action cards with random spacing
+  // -----------------------------
+  let result = [...numberCards];
 
-  let numIndex = 0;
-  let actIndex = 0;
+  for (let i = 0; i < actionsToUse.length; i++) {
+    const actionCard = actionsToUse[i];
 
-  for (let g = 0; g < gaps; g++) {
-    for (let i = 0; i < gapSize && numIndex < numberCards.length; i++) {
-      result.push(numberCards[numIndex++]);
+    // Insert action card
+    result.splice(insertPos, 0, actionCard);
+
+    // Decide if next card is sequential (1 or 2 max)
+    const allowSequential = Math.random() < 0.25; // 25% chance
+    if (allowSequential && i + 1 < actionsToUse.length) {
+      const nextAction = actionsToUse[i + 1];
+      result.splice(insertPos + 1, 0, nextAction);
+      i++; // Skip next action because we inserted it
     }
 
-    if (actIndex < rotated.length) {
-      result.push(rotated[actIndex++]);
+    // Random spacing for next insertion
+    const minGap = 2;
+    const maxGap = 8;
+    const gap = Math.floor(Math.random() * (maxGap - minGap + 1)) + minGap;
+
+    insertPos += gap;
+
+    // If we exceed deck length, wrap to end
+    if (insertPos > result.length - 1) {
+      insertPos = result.length - 1;
     }
   }
 
   return result;
 }
-
-
-
-// ------------------------------------------------------------
-//  RULE: IDENTICAL ACTION CARDS MUST BE ≥ 4 SPACES APART
-// ------------------------------------------------------------
-function fixIdenticalActions(deck) {
-  let changed = false;
-
-  for (let i = 0; i < deck.length; i++) {
-    const value = getValue(deck[i]);
-    if (!isAction(deck[i])) continue;
-
-    // Check next 4 positions
-    for (let j = 1; j <= 4 && i + j < deck.length; j++) {
-      if (getValue(deck[i + j]) === value) {
-
-        // Find a swap candidate further away
-        let swapIndex = -1;
-
-        for (let k = i + 5; k < deck.length; k++) {
-          if (getValue(deck[k]) !== value) {
-            swapIndex = k;
-            break;
-          }
-        }
-
-        if (swapIndex !== -1) {
-          const temp = deck[i + j];
-          deck[i + j] = deck[swapIndex];
-          deck[swapIndex] = temp;
-          changed = true;
-        }
-      }
-    }
-  }
-
-  return changed;
-}
-
-
-// ------------------------------------------------------------
-//  RULE: NO TWO "6-" CARDS NEXT TO EACH OTHER
-// ------------------------------------------------------------
-function fixSixMinus(deck) {
-  let changed = false;
-  const target = "6-";
-
-  for (let i = 0; i < deck.length - 1; i++) {
-    if (getValue(deck[i]) === target && getValue(deck[i + 1]) === target) {
-
-      let swapIndex = -1;
-
-      // Look forward
-      for (let j = i + 2; j < deck.length; j++) {
-        if (getValue(deck[j]) !== target) {
-          swapIndex = j;
-          break;
-        }
-      }
-
-      // Look backward
-      if (swapIndex === -1) {
-        for (let j = i - 1; j >= 0; j--) {
-          if (getValue(deck[j]) !== target) {
-            swapIndex = j;
-            break;
-          }
-        }
-      }
-
-      if (swapIndex !== -1) {
-        const temp = deck[i + 1];
-        deck[i + 1] = deck[swapIndex];
-        deck[swapIndex] = temp;
-        changed = true;
-      }
-    }
-  }
-
-  return changed;
-}
-
-
-// ------------------------------------------------------------
-//  RULE: "TAKE 3" CANNOT APPEAR IN FIRST 8 CARDS
-// ------------------------------------------------------------
-function fixTake3(deck) {
-  let changed = false;
-  const target = "Take 3";
-
-  for (let i = 0; i < 8; i++) {
-    if (getValue(deck[i]) === target) {
-
-      let swapIndex = -1;
-
-      for (let j = 8; j < deck.length; j++) {
-        if (getValue(deck[j]) !== target) {
-          swapIndex = j;
-          break;
-        }
-      }
-
-      if (swapIndex !== -1) {
-        const temp = deck[i];
-        deck[i] = deck[swapIndex];
-        deck[swapIndex] = temp;
-        changed = true;
-      }
-    }
-  }
-
-  return changed;
-}
-
-
-// ------------------------------------------------------------
-//  FIX-UNTIL-STABLE LOOP
-// ------------------------------------------------------------
-function enforceAllRules(deck) {
-  let changed = true;
-  let safety = 0;
-
-  while (changed && safety < 20) {
-    changed = false;
-    safety++;
-
-    if (fixIdenticalActions(deck)) changed = true;
-    if (fixSixMinus(deck)) changed = true;
-    if (fixTake3(deck)) changed = true;
-  }
-
-  return deck;
-}
-
-
-// ------------------------------------------------------------
-//  FINAL HYBRID SHUFFLE PIPELINE
-// ------------------------------------------------------------
-function hybridShuffle(deck, streakLengths = [2, 3]) {
-  fisherYates(deck);
-
-  for (const length of streakLengths) {
-    forceStreak(deck, length);
-  }
-
-  deck = advancedActionSpacing(deck);
-  deck = enforceAllRules(deck);
-
-  return deck;
-}
-
-
 
 
 
@@ -434,6 +309,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 
 

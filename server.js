@@ -100,7 +100,7 @@ function isAction(value) {
   }
   return true; // Everything else is an action card
 }
-function hybridShuffle(deck) {
+function hybridShuffle(deck, streakLengths = [2, 3]) {
   // -----------------------------
   // 1. Split deck into groups
   // -----------------------------
@@ -309,6 +309,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 
 

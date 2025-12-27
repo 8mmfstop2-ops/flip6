@@ -133,37 +133,39 @@
       }
     }
 
-function isAction(value) {
-  const num = parseInt(value, 10);
-  return isNaN(num) || num < 0 || num > 12;
-}
 
-function renderDeck(deckArray) {
-  deckEl.innerHTML = "";
+  function isAction(value) {
+    if (/^(?:[0-9]|1[0-2])$/.test(value)) {
+      return false;
+    }
+    return true;
+  }
+  
+  function renderDeck(deckArray) {
+    deckEl.innerHTML = "";
+  
+    deckArray.forEach((card, index) => {
+      const value = typeof card === "string" ? card : card.value;
+  
+      const div = document.createElement("div");
+  
+      const isNumberCard = !isAction(value);
+      div.className = "card " + (isNumberCard ? "number" : "special");
+  
+      const label = document.createElement("span");
+      label.className = "card-label";
+      label.textContent = value;
+  
+      const idx = document.createElement("span");
+      idx.className = "card-index";
+      idx.textContent = "#" + index;
+  
+      div.appendChild(label);
+      div.appendChild(idx);
+      deckEl.appendChild(div);
+    });
+  }
 
-  deckArray.forEach((card, index) => {
-    const value = typeof card === "string" ? card : card.value;
-
-    const div = document.createElement("div");
-
-    const isNumberCard = !isAction(value);
-    div.className = "card " + (isNumberCard ? "number" : "special");
-
-    const label = document.createElement("span");
-    label.className = "card-label";
-    label.textContent = value;
-
-    const idx = document.createElement("span");
-    idx.className = "card-index";
-    idx.textContent = "#" + index;
-
-    div.appendChild(label);
-    div.appendChild(idx);
-    deckEl.appendChild(div);
-  });
-}
-
-    
 
 
     initBtn.addEventListener("click", initDeck);
@@ -192,6 +194,7 @@ function renderDeck(deckArray) {
   </script>
 </body>
 </html>
+
 
 
 

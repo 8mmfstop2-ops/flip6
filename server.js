@@ -128,6 +128,47 @@ function spreadActionCards(deck) {
 }
 
 
+function preventSequentialSixMinus(deck) {
+  const target = "6-";
+
+  for (let i = 0; i < deck.length - 1; i++) {
+    if (deck[i] === target && deck[i + 1] === target) {
+
+      // Find the nearest non-6- card to swap with
+      let swapIndex = -1;
+
+      // Look forward first
+      for (let j = i + 2; j < deck.length; j++) {
+        if (deck[j] !== target) {
+          swapIndex = j;
+          break;
+        }
+      }
+
+      // If not found, look backward
+      if (swapIndex === -1) {
+        for (let j = i - 1; j >= 0; j--) {
+          if (deck[j] !== target) {
+            swapIndex = j;
+            break;
+          }
+        }
+      }
+
+      // If we found a valid swap location, do the swap
+      if (swapIndex !== -1) {
+        const temp = deck[i + 1];
+        deck[i + 1] = deck[swapIndex];
+        deck[swapIndex] = temp;
+      }
+    }
+  }
+
+  return deck;
+}
+
+
+
 
 // Hybrid shuffle
 function hybridShuffle(deck, streakLengths = [2, 3]) {
@@ -139,7 +180,7 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
 
   // high-quality action spacing
   deck = spreadActionCards(deck);
-
+  deck = preventSequentialSixMinus(deck);
   return deck;
 }
 
@@ -170,7 +211,7 @@ app.post("/api/init-deck", async (req, res) => {
       ["5+", "action-5+.png", 2],
       ["6-", "action-6-.png", 2],
       ["Freeze", "action-freeze.png", 1],
-      ["Second Chance", "action-secondchance.png", 2],
+      ["Second Chance", "action-secondchance.png", 3],
       ["Swap", "action-swap.png", 1],
       ["Take 3", "action-take3.png", 2]
     ];
@@ -263,6 +304,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 
 

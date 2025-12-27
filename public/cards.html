@@ -133,27 +133,39 @@
       }
     }
 
-    function renderDeck(deckArray) {
-      deckEl.innerHTML = "";
+  function renderDeck(deckArray) {
+    deckEl.innerHTML = "";
+  
+    const actionValues = new Set([
+      "2x",
+      "4+",
+      "5+",
+      "6-",
+      "Freeze",
+      "Second Chance",
+      "Swap",
+      "Take 3"
+    ]);
+  
+    deckArray.forEach((value, index) => {
+      const div = document.createElement("div");
+      const isAction = actionValues.has(value);
+      div.className = "card " + (isAction ? "special" : "number");
+  
+      const label = document.createElement("span");
+      label.className = "card-label";
+      label.textContent = value;
+  
+      const idx = document.createElement("span");
+      idx.className = "card-index";
+      idx.textContent = "#" + index;
+  
+      div.appendChild(label);
+      div.appendChild(idx);
+      deckEl.appendChild(div);
+    });
+  }
 
-      deckArray.forEach((value, index) => {
-        const div = document.createElement("div");
-        const isNumber = !isNaN(parseInt(value, 10));
-        div.className = "card " + (isNumber ? "number" : "special");
-
-        const label = document.createElement("span");
-        label.className = "card-label";
-        label.textContent = value;
-
-        const idx = document.createElement("span");
-        idx.className = "card-index";
-        idx.textContent = "#" + index;
-
-        div.appendChild(label);
-        div.appendChild(idx);
-        deckEl.appendChild(div);
-      });
-    }
 
     initBtn.addEventListener("click", initDeck);
     shuffleBtn.addEventListener("click", shuffleDeck);
@@ -181,3 +193,4 @@
   </script>
 </body>
 </html>
+

@@ -341,6 +341,19 @@ app.post("/api/init-deck", async (req, res) => {
 });
 
 
+app.post("/api/clear-deck", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM deck");
+    res.json({ success: true, message: "Deck table cleared" });
+  } catch (err) {
+    console.error("Error clearing deck:", err);
+    res.status(500).json({ success: false, error: "Failed to clear deck" });
+  }
+});
+
+
+
+
 /**
  * Shuffle deck using hybrid shuffle, store in deck table, return sequence
  */
@@ -358,30 +371,33 @@ app.post("/api/shuffle-deck", async (req, res) => {
     let deck = [];
     for (const row of rows) {
       for (let i = 0; i < row.count; i++) {
-        deck.push(row.value);
+        deck.push({ value: row.value });   // <-- IMPORTANT: store as objects
       }
     }
 
-    // 3. Shuffle
-    hybridShuffle(deck);
+    // 3. Shuffle (must capture return value)
+    deck = hybridShuffle(deck);
 
     // 4. Save shuffled deck
     await pool.query("DELETE FROM deck");
+
     for (let i = 0; i < deck.length; i++) {
       await pool.query(
         "INSERT INTO deck (position, value) VALUES ($1, $2)",
-        [i, deck[i]]
+        [i, deck[i].value]   // <-- IMPORTANT: use card.value
       );
     }
 
     // 5. Emit via socket and respond
     io.emit("deckUpdated", deck);
     res.json({ success: true, deck });
+
   } catch (err) {
     console.error("shuffle-deck error:", err);
     res.status(500).json({ success: false, error: "Shuffle failed." });
   }
 });
+
 
 /**
  * Optional: get last shuffled deck
@@ -412,6 +428,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 
 

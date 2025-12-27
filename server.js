@@ -27,6 +27,7 @@ const pool = new Pool({
     await pool.query(`
       CREATE TABLE IF NOT EXISTS card_types (
         value TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
         count INT NOT NULL
       );
     `);
@@ -90,33 +91,51 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
 
 /* ---------------- APIs ---------------- */
 
-/**
- * Initialize card_types with fixed counts
- */
+/* ---> Initialize card_types with fixed counts <---- */
 app.post("/api/init-deck", async (req, res) => {
   try {
     const cardData = [
-      ["0", 1], ["1", 1], ["2", 2], ["3", 3], ["4", 4], ["5", 5],
-      ["6", 6], ["7", 7], ["8", 8], ["9", 9], ["10", 10], ["11", 11], ["12", 12],
-      ["2x", 1], ["4+", 2], ["5+", 2], ["6-", 2],
-      ["Freeze", 1], ["Second Chance", 2], ["Swap", 1], ["Take 3", 2]
+      ["0", "0.png", 1],
+      ["1", "1.png", 1],
+      ["2", "2.png", 2],
+      ["3", "3.png", 3],
+      ["4", "4.png", 4],
+      ["5", "5.png", 5],
+      ["6", "6.png", 6],
+      ["7", "7.png", 7],
+      ["8", "8.png", 8],
+      ["9", "9.png", 9],
+      ["10", "10.png", 10],
+      ["11", "11.png", 11],
+      ["12", "12.png", 12],
+
+      // Action cards
+      ["2x", "action-2x.png", 1],
+      ["4+", "action-4+.png", 2],
+      ["5+", "action-5+.png", 2],
+      ["6-", "action-6-.png", 2],
+      ["Freeze", "action-freeze.png", 1],
+      ["Second Chance", "action-secondchance.png", 2],
+      ["Swap", "action-swap.png", 1],
+      ["Take 3", "action-take3.png", 2]
     ];
 
     await pool.query("DELETE FROM card_types");
 
-    for (const [value, count] of cardData) {
+    for (const [value, filename, count] of cardData) {
       await pool.query(
-        "INSERT INTO card_types (value, count) VALUES ($1, $2)",
-        [value, count]
+        "INSERT INTO card_types (value, filename, count) VALUES ($1, $2, $3)",
+        [value, filename, count]
       );
     }
 
-    res.json({ success: true, message: "Deck initialized." });
+    res.json({ success: true, message: "Deck initialized with filenames." });
   } catch (err) {
     console.error("init-deck error:", err);
     res.status(500).json({ success: false, error: "Initialization failed." });
   }
 });
+
 
 /**
  * Shuffle deck using hybrid shuffle, store in deck table, return sequence
@@ -189,3 +208,4 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+

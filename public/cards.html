@@ -133,16 +133,20 @@
       }
     }
 
+  function isAction(value) {
+    const num = parseInt(value, 10);
+    return isNaN(num) || num < 0 || num > 12;
+  }
+  
   function renderDeck(deckArray) {
     deckEl.innerHTML = "";
   
-    deckArray.forEach((value, index) => {
+    deckArray.forEach((card, index) => {
+      const value = card.value; // <- use the card's value string
+  
       const div = document.createElement("div");
   
-      // NEW: action card detection
-      const num = parseInt(value, 10);
-      const isNumberCard = !isNaN(num) && num >= 0 && num <= 12;
-  
+      const isNumberCard = !isAction(value);
       div.className = "card " + (isNumberCard ? "number" : "special");
   
       const label = document.createElement("span");
@@ -186,6 +190,7 @@
   </script>
 </body>
 </html>
+
 
 
 

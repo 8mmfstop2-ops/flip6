@@ -134,7 +134,7 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
   // 3. Choose random starting index (>= 7)
   // -----------------------------
   const minStart = 7;
-  const maxStart = numberCards.length - 1;
+  const maxStart = 18;
   let insertPos = Math.floor(Math.random() * (maxStart - minStart + 1)) + minStart;
 
   // -----------------------------
@@ -309,6 +309,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Server running on port " + PORT));
+
 
 
 

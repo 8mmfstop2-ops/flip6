@@ -7,7 +7,7 @@
 <style>
 /* ============================================================
    GENERAL PAGE STYLE
-   ============================================================ */
+============================================================ */
 body {
   font-family: Arial, sans-serif;
   background: #304730;
@@ -24,8 +24,8 @@ body {
 }
 
 /* ============================================================
-   ACCORDION SECTIONS
-   ============================================================ */
+   ACCORDION
+============================================================ */
 details {
   border: 1px solid #ccc;
   border-radius: 6px;
@@ -57,7 +57,7 @@ details > div {
 
 /* ============================================================
    TABLE LAYOUT (6 SEATS)
-   ============================================================ */
+============================================================ */
 table.playing-table {
   margin: 5px auto;
   border-collapse: collapse;
@@ -84,8 +84,8 @@ table.playing-table {
 }
 
 /* ============================================================
-   PLAYER NAME + SCORE
-   ============================================================ */
+   PLAYER NAME
+============================================================ */
 .player-name {
   font-weight: bold;
   margin-bottom: 10px;
@@ -94,14 +94,13 @@ table.playing-table {
 
 /* ============================================================
    CARD SLOTS
-   ============================================================ */
+============================================================ */
 .card-row {
   display: flex;
   justify-content: center;
   gap: 8px;
   margin-bottom: 5px;
 }
-
 .card {
   width: 70px;
   height: 100px;
@@ -111,7 +110,6 @@ table.playing-table {
   position: relative;
   overflow: hidden;
 }
-
 .card img {
   width: 70px;
   height: 100px;
@@ -121,7 +119,7 @@ table.playing-table {
 
 /* ============================================================
    DECK AREA
-   ============================================================ */
+============================================================ */
 .deck {
   position: relative;
   width: 80px;
@@ -130,19 +128,16 @@ table.playing-table {
   cursor: pointer;
   user-select: none;
 }
-
 .deck.disabled {
   pointer-events: none;
   opacity: 0.5;
   cursor: not-allowed;
 }
-
 .deck .card {
   position: absolute;
   top: 0;
   left: 0;
 }
-
 /* Placeholder deck before first draw */
 #deck.placeholder::before {
   content: "Click to Start";
@@ -160,13 +155,12 @@ table.playing-table {
 
 /* ============================================================
    DISCARD AREA
-   ============================================================ */
+============================================================ */
 td.discard-cell {
   text-align: center;
   vertical-align: top;
   padding: 10px 0;
 }
-
 #discard-pile.empty::before {
   content: "Empty";
   color: #fff;
@@ -184,7 +178,7 @@ td.discard-cell {
 
 /* ============================================================
    BUTTONS
-   ============================================================ */
+============================================================ */
 .stay-button {
   background-color: #3f3f4f;
   color: #fff;
@@ -198,7 +192,6 @@ td.discard-cell {
 .stay-button:hover {
   background-color: #1ff233;
 }
-
 .end-turns-button {
   background-color: #6D1AA1;
   color: #fff;
@@ -220,15 +213,26 @@ td.discard-cell {
   opacity: 0.6;
 }
 
+/* Mute / volume controls */
+.controls-audio {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+}
+.controls-audio label {
+  font-size: 0.9em;
+}
+
 /* ============================================================
    PLAYER HIGHLIGHTING
-   ============================================================ */
+============================================================ */
 .active-player {
   outline: 5px solid yellow;
   outline-offset: -5px;
   background-color: #c9b800 !important;
 }
-
 .stayed-player {
   outline: 5px solid red;
   outline-offset: -5px;
@@ -236,8 +240,8 @@ td.discard-cell {
 }
 
 /* ============================================================
-   TARGET SELECTION MODE (Option C)
-   ============================================================ */
+   TARGET SELECTION MODE
+============================================================ */
 .target-eligible {
   outline: 5px solid #00ffea;
   outline-offset: -5px;
@@ -249,7 +253,7 @@ td.discard-cell {
 
 /* ============================================================
    PAUSE OVERLAY
-   ============================================================ */
+============================================================ */
 #pause-overlay {
   position: fixed;
   top: 0;
@@ -264,6 +268,20 @@ td.discard-cell {
   justify-content: center;
   z-index: 9999;
 }
+
+/* ============================================================
+   FLYING CARD ANIMATION (deck → seat)
+============================================================ */
+.flying-card {
+  position: fixed;
+  width: 70px;
+  height: 100px;
+  border-radius: 6px;
+  border: 3px solid #000;
+  pointer-events: none;
+  z-index: 999;
+  transition: transform 0.4s ease-out, opacity 0.4s ease-out;
+}
 </style>
 </head>
 
@@ -271,23 +289,32 @@ td.discard-cell {
 
 <!-- ============================================================
      PAUSE OVERLAY
-     ============================================================ -->
+============================================================ -->
 <div id="pause-overlay">Game Paused — Waiting for Player…</div>
 
 <!-- ============================================================
-     CONTROLS ACCORDION
-     ============================================================ -->
+     CONTROLS
+============================================================ -->
 <details open>
   <summary>Controls</summary>
   <div>
     <input id="removeName" placeholder="Player name to remove" style="margin-right:8px;">
     <button id="removeBtn">Remove Player</button>
+
+    <!-- Audio controls: mute + volume -->
+    <div class="controls-audio">
+      <button id="mute-toggle">Mute</button>
+      <label>
+        Volume:
+        <input id="volume-slider" type="range" min="0" max="100" value="90">
+      </label>
+    </div>
   </div>
 </details>
 
 <!-- ============================================================
-     PLAYING TABLE ACCORDION
-     ============================================================ -->
+     PLAYING TABLE
+============================================================ -->
 <details open>
   <summary>Playing Table</summary>
   <div>
@@ -299,12 +326,10 @@ td.discard-cell {
       </colgroup>
       <tbody>
 
-        <!-- ============================================================
-             ROW 1 — Seats 1 & 2 + Discard
-             ============================================================ -->
+        <!-- ROW 1 — Seats 1 & 2 + Discard -->
         <tr>
-          <!-- Seat 1 (order_index 0) -->
-          <td id="alice-cell">
+          <!-- Seat 1 (top row, left) -->
+          <td id="seat1">
             <div class="player-name">Seat 1</div>
             <div class="card-row">
               <div class="card"></div><div class="card"></div><div class="card"></div>
@@ -323,8 +348,8 @@ td.discard-cell {
             <div id="discard-count">Discarded: 0</div>
           </td>
 
-          <!-- Seat 2 (order_index 1) -->
-          <td id="bob-cell">
+          <!-- Seat 2 (top row, right) -->
+          <td id="seat2">
             <div class="player-name">Seat 2</div>
             <div class="card-row">
               <div class="card"></div><div class="card"></div><div class="card"></div>
@@ -337,12 +362,10 @@ td.discard-cell {
           </td>
         </tr>
 
-        <!-- ============================================================
-             ROW 2 — Seats 3 & 4 + Deck
-             ============================================================ -->
+        <!-- ROW 2 — Seats 3 & 4 + Deck -->
         <tr>
-          <!-- Seat 3 (order_index 2) -->
-          <td id="carol-cell">
+          <!-- Seat 3 (middle row, left) -->
+          <td id="seat3">
             <div class="player-name">Seat 3</div>
             <div class="card-row">
               <div class="card"></div><div class="card"></div><div class="card"></div>
@@ -361,8 +384,8 @@ td.discard-cell {
             <div id="deck-count">0 cards</div>
           </td>
 
-          <!-- Seat 4 (order_index 3) -->
-          <td id="dave-cell">
+          <!-- Seat 4 (middle row, right) -->
+          <td id="seat4">
             <div class="player-name">Seat 4</div>
             <div class="card-row">
               <div class="card"></div><div class="card"></div><div class="card"></div>
@@ -375,12 +398,10 @@ td.discard-cell {
           </td>
         </tr>
 
-        <!-- ============================================================
-             ROW 3 — Seats 5 & 6 + Stay Button
-             ============================================================ -->
+        <!-- ROW 3 — Seats 5 & 6 + Stay Button -->
         <tr>
-          <!-- Seat 5 (order_index 4) -->
-          <td id="eve-cell">
+          <!-- Seat 5 (bottom row, left) -->
+          <td id="seat5">
             <div class="player-name">Seat 5</div>
             <div class="card-row">
               <div class="card"></div><div class="card"></div><div class="card"></div>
@@ -397,8 +418,8 @@ td.discard-cell {
             <button id="stay-button" class="stay-button">🪬 Stay</button>
           </td>
 
-          <!-- Seat 6 (order_index 5) -->
-          <td id="frank-cell">
+          <!-- Seat 6 (bottom row, right) -->
+          <td id="seat6">
             <div class="player-name">Seat 6</div>
             <div class="card-row">
               <div class="card"></div><div class="card"></div><div class="card"></div>
@@ -419,8 +440,8 @@ td.discard-cell {
 </details>
 
 <!-- ============================================================
-     SCORING ACCORDION
-     ============================================================ -->
+     SCORING
+============================================================ -->
 <details>
   <summary>Scoring</summary>
   <div>
@@ -430,24 +451,24 @@ td.discard-cell {
 
 <!-- ============================================================
      SOCKET.IO + GAME LOGIC
-     ============================================================ -->
+============================================================ -->
 <script src="/socket.io/socket.io.js"></script>
 <script>
 /* ============================================================
    URL PARAMS
-   ============================================================ */
+============================================================ */
 const urlParams = new URLSearchParams(window.location.search);
 const playerId = parseInt(urlParams.get("playerId"), 10);
 const roomCode = window.location.pathname.split("/").pop().toUpperCase();
 
 /* ============================================================
    SOCKET
-   ============================================================ */
+============================================================ */
 const socket = io();
 
 /* ============================================================
    DOM ELEMENTS
-   ============================================================ */
+============================================================ */
 const statusDiv = document.getElementById("status");
 const deckDiv = document.getElementById("deck");
 const discardPileDiv = document.getElementById("discard-pile");
@@ -458,22 +479,64 @@ const endTurnsButton = document.getElementById("end-turns");
 const removeNameInput = document.getElementById("removeName");
 const removeBtn = document.getElementById("removeBtn");
 const pauseOverlay = document.getElementById("pause-overlay");
+const muteToggleBtn = document.getElementById("mute-toggle");
+const volumeSlider = document.getElementById("volume-slider");
 
 /* ============================================================
    SEAT MAPPING (order_index → seat cell)
-   ============================================================ */
-const seatIds = [
-  "alice-cell",
-  "bob-cell",
-  "carol-cell",
-  "dave-cell",
-  "eve-cell",
-  "frank-cell"
-];
+============================================================ */
+const seatIds = ["seat1", "seat2", "seat3", "seat4", "seat5", "seat6"];
+
+/* ============================================================
+   AUDIO SYSTEM
+============================================================ */
+// Load all sounds
+const sounds = {
+  draw: new Audio("/sounds/draw.mp3"),
+  shuffle: new Audio("/sounds/suffle.mp3"),
+  bust: new Audio("/sounds/bust.mp3"),
+  secondChance: new Audio("/sounds/secondChance.mp3"),
+  sixMinus: new Audio("/sounds/6-.mp3"),
+  action: new Audio("/sounds/action.mp3")
+};
+
+// Global audio state
+let isMuted = false;
+let volumeLevel = 0.9; // 0.0–1.0
+
+// Initialize audio objects
+Object.values(sounds).forEach(s => {
+  s.preload = "auto";
+  s.volume = volumeLevel;
+});
+
+// Helper: play a sound (all clients, no per-player restriction)
+function playSound(name) {
+  if (isMuted) return;
+  const original = sounds[name];
+  if (!original) return;
+
+  // Clone so overlapping sounds do not cut each other off
+  const s = original.cloneNode();
+  s.volume = volumeLevel;
+  s.play().catch(() => {});
+}
+
+// Mute button logic
+muteToggleBtn.addEventListener("click", () => {
+  isMuted = !isMuted;
+  muteToggleBtn.textContent = isMuted ? "Unmute" : "Mute";
+});
+
+// Volume slider logic (0–100 → 0.0–1.0)
+volumeSlider.addEventListener("input", () => {
+  const val = parseInt(volumeSlider.value, 10);
+  volumeLevel = Math.max(0, Math.min(100, val)) / 100;
+});
 
 /* ============================================================
    CARD METADATA (value → filename)
-   ============================================================ */
+============================================================ */
 let cardMeta = {};
 
 async function loadCardMeta() {
@@ -492,8 +555,8 @@ function getCardImgSrc(value) {
 }
 
 /* ============================================================
-   ROUND SCORE CALC (client-side mirror of server)
-   ============================================================ */
+   ROUND SCORE CALC (client-side mirror)
+============================================================ */
 function computeRoundScore(values) {
   let score = 0;
   let mult = 1;
@@ -514,13 +577,100 @@ function computeRoundScore(values) {
 }
 
 /* ============================================================
+   GLOBAL STATE REFERENCES
+============================================================ */
+let currentState = null; // used for local checks
+let lastState = null;    // used to detect changes (draws, busts, etc.)
+
+/* ============================================================
+   FLICK / ARC ANIMATION HELPERS
+============================================================ */
+/**
+ * Determine flick direction + vertical arc based on seat index
+ * seatIndex: 0..5 → seat1..seat6
+ *
+ * Left seats (1,3,5) → flick left
+ * Right seats (2,4,6) → flick right
+ * Row 1 (seats 1,2) → arc up
+ * Row 2 (seats 3,4) → straight
+ * Row 3 (seats 5,6) → arc down
+ */
+function getFlickAnimationForSeat(seatIndex) {
+  const isLeft = (seatIndex === 0 || seatIndex === 2 || seatIndex === 4);
+  const isTop = (seatIndex === 0 || seatIndex === 1);
+  const isBottom = (seatIndex === 4 || seatIndex === 5);
+
+  const direction = isLeft ? "left" : "right";
+
+  let arcY = 0;
+  if (isTop) arcY = -40;      // arc upward
+  else if (isBottom) arcY = 40; // arc downward
+
+  return { direction, arcY };
+}
+
+/**
+ * Animate a card flying from the deck to a given seat
+ * value: card value string
+ * seatIndex: 0..5
+ */
+function animateCardToSeat(value, seatIndex) {
+  const deckRect = deckDiv.getBoundingClientRect();
+  const seatId = seatIds[seatIndex];
+  const seatCell = document.getElementById(seatId);
+  if (!seatCell) return;
+
+  // Target: roughly the center of the second row of cards for that seat
+  const targetRow = seatCell.querySelector(".second-row") || seatCell;
+  const targetRect = targetRow.getBoundingClientRect();
+
+  const imgSrc = getCardImgSrc(value);
+
+  // Create a flying card element positioned at deck
+  const flying = document.createElement("img");
+  flying.src = imgSrc;
+  flying.className = "flying-card";
+  flying.style.left = (deckRect.left + deckRect.width / 2 - 35) + "px";
+  flying.style.top = (deckRect.top + deckRect.height / 2 - 50) + "px";
+  flying.style.transform = "translate(0px, 0px)";
+  flying.style.opacity = "1";
+
+  document.body.appendChild(flying);
+
+  // Compute delta movement
+  const dx = (targetRect.left + targetRect.width / 2) - (deckRect.left + deckRect.width / 2);
+  const dy = (targetRect.top + targetRect.height / 2) - (deckRect.top + deckRect.height / 2);
+
+  const { direction, arcY } = getFlickAnimationForSeat(seatIndex);
+
+  // Apply transform after small delay so CSS transition kicks in
+  requestAnimationFrame(() => {
+    let translateX = dx;
+    let translateY = dy + arcY;
+
+    // Add side flick & rotate
+    const rotateDeg = direction === "left" ? -20 : 20;
+
+    flying.style.transform = `translate(${translateX}px, ${translateY}px) rotate(${rotateDeg}deg)`;
+    flying.style.opacity = "0";
+  });
+
+  // Remove flying card after animation
+  setTimeout(() => {
+    if (flying && flying.parentNode) {
+      flying.parentNode.removeChild(flying);
+    }
+  }, 450);
+}
+
+/* ============================================================
    RENDER DECK
-   ============================================================ */
+============================================================ */
 function renderDeck(state) {
   deckDiv.innerHTML = "";
 
-  // Placeholder deck before first draw
-  if (state.topDrawCards.length === 0 && state.deckCount === 0) {
+  // No deck yet (before first shuffle / start)
+  if (state.deckCount === 0) {
     deckDiv.classList.add("placeholder");
     deckCountDiv.textContent = "0 cards";
     return;
@@ -551,16 +701,31 @@ function renderDeck(state) {
 
 /* ============================================================
    RENDER DISCARD
-   ============================================================ */
+============================================================ */
 function renderDiscard(state) {
-  discardPileDiv.classList.add("empty");
   discardPileDiv.innerHTML = "";
+  discardPileDiv.classList.remove("empty");
+
+  if (state.discardCount === 0 || !state.topDiscardCard) {
+    discardPileDiv.classList.add("empty");
+    discardCountDiv.textContent = "Discarded: 0";
+    return;
+  }
+
+  const img = document.createElement("img");
+  img.src = getCardImgSrc(state.topDiscardCard);
+  img.style.width = "70px";
+  img.style.height = "100px";
+  img.style.borderRadius = "6px";
+  img.style.border = "3px solid #000";
+
+  discardPileDiv.appendChild(img);
   discardCountDiv.textContent = "Discarded: " + state.discardCount;
 }
 
 /* ============================================================
    RENDER PLAYERS + HANDS
-   ============================================================ */
+============================================================ */
 function renderPlayers(state) {
   // Build handsByPlayer: { playerId: [values...] }
   const handsByPlayer = {};
@@ -621,8 +786,8 @@ function renderPlayers(state) {
 }
 
 /* ============================================================
-   TARGET SELECTION MODE (Option C)
-   ============================================================ */
+   TARGET SELECTION MODE
+============================================================ */
 function applyTargetSelection(state) {
   // Clear all target classes first
   seatIds.forEach(id => {
@@ -682,13 +847,16 @@ function applyTargetSelection(state) {
 
 /* ============================================================
    BUTTON ENABLE/DISABLE LOGIC
-   ============================================================ */
+============================================================ */
 function updateButtons(state) {
-  const isMyTurn = state.currentPlayerId === playerId && !state.roundOver && !state.paused;
-  const canDraw = isMyTurn && !state.pendingActionType && state.deckCount > 0;
+  const isMyTurn =
+    state.currentPlayerId === playerId &&
+    !state.roundOver &&
+    !state.paused &&
+    !state.pendingActionType;
 
-  deckDiv.classList.toggle("disabled", !canDraw);
-  stayButton.disabled = !isMyTurn || state.pendingActionType;
+  deckDiv.classList.toggle("disabled", !isMyTurn);
+  stayButton.disabled = !isMyTurn;
   endTurnsButton.disabled = !state.roundOver || state.paused;
 
   if (state.paused) {
@@ -722,7 +890,7 @@ function updateButtons(state) {
 
 /* ============================================================
    PAUSE OVERLAY
-   ============================================================ */
+============================================================ */
 function updatePauseOverlay(state) {
   if (state.paused) {
     const disconnected = state.disconnectedPlayers.map(p => p.name).join(", ");
@@ -734,9 +902,73 @@ function updatePauseOverlay(state) {
 }
 
 /* ============================================================
+   SOUND + ANIMATION TRIGGERS BASED ON STATE CHANGE
+============================================================ */
+function detectSoundAndAnimationEvents(state) {
+  if (!lastState) {
+    lastState = state;
+    return;
+  }
+
+  // 1) Detect deck creation / shuffle
+  if (lastState.deckCount === 0 && state.deckCount > 0) {
+    playSound("shuffle");
+  }
+
+  // 2) Detect bust (any player whose round_bust just became true)
+  const prevBusts = new Set(
+    (lastState.players || []).filter(p => p.round_bust).map(p => p.id)
+  );
+  const newBusts = (state.players || []).filter(
+    p => p.round_bust && !prevBusts.has(p.id)
+  );
+  if (newBusts.length > 0) {
+    playSound("bust");
+  }
+
+  // 3) Detect cards newly added to hands (draw events)
+  if ((state.hands || []).length > (lastState.hands || []).length) {
+    // Newly added hand entries
+    const prevCount = lastState.hands.length;
+    const newEntries = state.hands.slice(prevCount);
+
+    newEntries.forEach(h => {
+      const newCard = h.value;
+      const playerIdOfCard = h.player_id;
+
+      // Map playerId → seatIndex
+      const seatIndex = state.players.findIndex(p => p.id === playerIdOfCard);
+      if (seatIndex >= 0 && seatIndex < seatIds.length) {
+        // Animate the card flying from deck → seat
+        animateCardToSeat(newCard, seatIndex);
+      }
+
+      // Sound logic for the drawn card
+      if (newCard === "Second Chance") {
+        playSound("secondChance");
+      } else if (newCard === "6-") {
+        playSound("sixMinus");
+      } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
+        // Normalize "Take3" vs "Take 3"
+        playSound("action");
+      } else {
+        playSound("draw");
+      }
+    });
+  }
+
+  lastState = state;
+}
+
+/* ============================================================
    SOCKET STATE UPDATE
-   ============================================================ */
+============================================================ */
 socket.on("stateUpdate", (state) => {
+  currentState = state;
+
+  // Sound + animation detection BEFORE rendering
+  detectSoundAndAnimationEvents(state);
+
   renderDeck(state);
   renderDiscard(state);
   renderPlayers(state);
@@ -746,7 +978,7 @@ socket.on("stateUpdate", (state) => {
 
 /* ============================================================
    ON CONNECT → LOAD CARD META + JOIN ROOM
-   ============================================================ */
+============================================================ */
 socket.on("connect", async () => {
   await loadCardMeta();
   socket.emit("joinRoom", { roomCode, playerId });
@@ -754,8 +986,19 @@ socket.on("connect", async () => {
 
 /* ============================================================
    UI EVENTS
-   ============================================================ */
+============================================================ */
 deckDiv.addEventListener("click", () => {
+  // Only the active player, unpaused, no pending action, and round not over can draw
+  const isMyTurn =
+    currentState &&
+    currentState.currentPlayerId === playerId &&
+    !currentState.roundOver &&
+    !currentState.paused &&
+    !currentState.pendingActionType &&
+    currentState.deckCount > 0;
+
+  if (!isMyTurn) return;
+
   socket.emit("drawCard", { roomCode, playerId });
 });
 
@@ -776,11 +1019,10 @@ removeBtn.addEventListener("click", () => {
 
 /* ============================================================
    INITIAL STATUS
-   ============================================================ */
+============================================================ */
 statusDiv.textContent = "Connecting to room…";
 
 </script>
 
 </body>
 </html>
-

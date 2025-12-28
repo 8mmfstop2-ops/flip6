@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flip to 6: Playing Table</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #304730;
+      color: #fff;
+      text-align: center;
+    }
+
+    /* Accordion styling */
+    details {
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin: 6px 0;
+      background: #222;
+    }
+    summary {
+      cursor: pointer;
+      padding: 5px 0px;
+      font-weight: 600;
+      list-style: none;
+    }
+    summary::before {
+      content: "▶";
+      font-size: 0.9em;
+      margin-right: 8px;
+      transition: transform 0.2s ease;
+      display: inline-block;
+    }
+    details[open] summary::before {
+      transform: rotate(90deg);
+    }
+    details > div {
+      padding: 6px 6px;
+      border-top: 1px solid #444;
+      background: #333;
+    }
+
+    /* Table layout */
+    table.playing-table {
+      margin: 5px auto;
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 1200px;
+    }
+    .playing-table td {
+      border: 2px solid #444;
+      padding: 10px;
+      vertical-align: top;
+      background: #0a7f4f;
+      border-radius: 8px;
+    }
+
+    /* Middle column default: centered vertically */
+    .playing-table tr td:nth-child(2) {
+      background: #7992BA;
+      vertical-align: middle;
+    }
+
+    /* Row 3 middle column override: TOP aligned */
+    .playing-table tr:nth-child(3) td:nth-child(2) {
+      vertical-align: top;
+    }
+
+    /* Player name */
+    .player-name {
+      font-weight: bold;
+      margin-bottom: 10px;
+      font-size: 1.2em;
+    }
+
+    /* Card rows */
+    .card-row {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 5px;
+    }
+
+    /* Individual card */
+    .card {
+      width: 70px;
+      height: 100px;
+      /*background: #fff;
+      color: #000;
+      border: 2px solid #000;*/
+		background: transparent; 
+		 /*color: rgba(255,255,255,0.35); faint label */ 
+		border: none; /* remove border */	  
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /*font-weight: bold;*/
+		position: relative; /* needed for overlay */	  
+      cursor: pointer;
+      user-select: none;
+    }
+	
+	
+	.card img {
+	  position: absolute;
+	  top: 0;
+	  left: 0;
+      width: 70px;
+      height: 100px;
+	  border: 3px solid #000;
+	  border-radius: 6px;
+	  z-index: 5; /* ensures image covers label */
+	}
+
+
+    /* Deck container (generic) */
+    .deck {
+      position: relative;
+      width: 80px;
+      height: 110px;
+      margin: 0 auto; /* discard pile no longer gets 40px margin */
+      cursor: pointer;
+      user-select: none;
+    }
+
+    /* Main deck only gets extra spacing */
+    #deck {
+      margin: 40px auto;
+    }
+
+    .deck.disabled {
+      pointer-events: none;
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .deck .card {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transition: all 0.3s ease;
+      width: 70px;
+      height: 100px;
+      background: #fff;
+      border: 2px solid #000;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+    }
+
+    /* ------------------------------
+       FULL DECK THICKNESS STEPS
+       ------------------------------ */
+
+    .deck.step1 .card:nth-child(2) { top: 6px; left: 6px; }
+    .deck.step1 .card:nth-child(3) { top: 12px; left: 8px; }
+    .deck.step1 .card:nth-child(4) { top: 18px; left: 10px; }
+    .deck.step1 .card:nth-child(5) { top: 24px; left: 14px; }
+
+    .deck.step2 .card:nth-child(2) { top: 5px; left: 5px; }
+    .deck.step2 .card:nth-child(3) { top: 10px; left: 10px; }
+    .deck.step2 .card:nth-child(4) { top: 15px; left: 15px; }
+    .deck.step2 .card:nth-child(5) { top: 20px; left: 20px; }
+
+.deck.step3 .card:nth-child(2) { top: 4px; left: -6px; }   /* far left */
+.deck.step3 .card:nth-child(3) { top: 8px; left: 2px; }    /* slight left */
+.deck.step3 .card:nth-child(4) { top: 12px; left: 18px; }  /* slight right */
+.deck.step3 .card:nth-child(5) { top: 16px; left: 12px; }  /* far right */
+
+
+.deck.step4 .card:nth-child(2) { top: 3px; left: -10px; }  /* very left */
+.deck.step4 .card:nth-child(3) { top: 6px; left: 0px; }    /* left */
+.deck.step4 .card:nth-child(4) { top: 9px; left: 10px; }   /* right */
+.deck.step4 .card:nth-child(5) { top: 12px; left: 18px; }  /* very right */
+
+
+/* STEP 5 — Very thin, slight wobble */
+.deck.step5 .card:nth-child(2) { top: 0px; left: -1px; transform: rotate(-1deg); }
+.deck.step5 .card:nth-child(3) { top: 1px; left: 1px; transform: rotate(-1deg); }
+.deck.step5 .card:nth-child(4) { top: 2px; left: 5px; transform: rotate(-1deg); }
+.deck.step5 .card:nth-child(5) { top: 3px; left: 0px; transform: rotate(0deg); }
+
+    .deck.step6 .card:nth-child(3) { top: 2px; left: 2px;transform: rotate(0deg);  }
+    .deck.step6 .card:nth-child(4) { top: 3px; left: 3px;transform: rotate(0deg);  }
+    .deck.step6 .card:nth-child(5) { top: 4px; left: 4px; transform: rotate(0deg); }
+
+    .deck.step7 .card:nth-child(2) { top: 0px; left: 0px; }
+    .deck.step7 .card:nth-child(3) { top: 1px; left: 1px; }
+    .deck.step7 .card:nth-child(4) { top: 2px; left: 2px; }
+    .deck.step7 .card:nth-child(5) { top: 3px; left: 3px; }
+
+    .deck.step8 .card:nth-child(2) { top: 0px; left: 0px; }
+    .deck.step8 .card:nth-child(3) { top: 0px; left: 0px; }
+    .deck.step8 .card:nth-child(4) { top: 1px; left: 1px; }
+    .deck.step8 .card:nth-child(5) { top: 2px; left: 2px; }
+
+    .deck.step9 .card:nth-child(2),
+    .deck.step9 .card:nth-child(3),
+    .deck.step9 .card:nth-child(4),
+    .deck.step9 .card:nth-child(5) {
+      top: 0;
+      left: 0;
+    }
+
+    /* STEP 10 — EMPTY DECK */
+    .deck.step10 .card {
+      display: none;
+    }
+    .deck.step10::before {
+      content: "Empty";
+      color: #fff;
+      font-weight: bold;
+      font-size: 1.2em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 70px;
+      height: 100px;
+      border: 2px dashed #fff;
+      border-radius: 6px;
+      margin: auto;
+    }
+
+    /* Discard cell — FIXED */
+    td.discard-cell {
+      text-align: center;
+      vertical-align: top;
+      padding: 10px 0;
+      user-select: none;
+    }
+
+    /* Discard pile empty outline */
+    #discard-pile.empty::before {
+      content: "Empty";
+      color: #fff;
+      font-weight: bold;
+      font-size: 1.1em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 70px;
+      height: 100px;
+      border: 2px dashed #fff;
+      border-radius: 6px;
+      margin: auto;
+    }
+
+    /* Stay cell */
+    td.stay-cell {
+      text-align: center;
+      vertical-align: top;
+      padding: 10px 0;
+    }
+
+    /* Stay button */
+    .stay-button {
+      background-color: #3f3f4f;
+      color: #fff;
+      font-size: 1.1em;
+      font-weight: bold;
+      padding: 22px 22px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+    .stay-button:hover {
+      background-color: #1ff233;
+    }
+
+    /* End Turns button */
+    .end-turns-button {
+      background-color: #6D1AA1;
+      color: #fff;
+      font-size: 1.1em;
+      font-weight: bold;
+      padding: 20px 8px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 8px;
+      transition: background 0.3s ease;
+    }
+    .end-turns-button:hover {
+      background-color: #1ff233;
+    }
+
+	/* Disabled End Round button */
+	.end-turns-button:disabled {
+	  background-color: #555 !important;
+	  color: #999 !important;
+	  cursor: not-allowed;
+	  opacity: 0.6;
+	  border: 2px solid #333;
+	}
+
+	/* Prevent hover color when disabled */
+	.end-turns-button:disabled:hover {
+	  background-color: #555 !important;
+	}
+
+
+
+	/* Highlight the active player's cell */
+	.active-player {
+	  outline: 5px solid yellow;
+	  outline-offset: -5px;
+	  background-color: #c9b800 !important; /* soft yellow tint */
+	  transition: background-color 0.3s ease, outline 0.3s ease;
+	}
+
+	/* Player who has chosen Stay */
+	.stayed-player {
+	  outline: 5px solid red;
+	  outline-offset: -5px;
+	  background-color: #8b0000 !important;
+	}
+
+
+  </style>
+</head>
+<body>
+
+  <!-- Controls accordion -->
+  <details open>
+    <summary>Controls</summary>
+    <div>
+      <button id="shuffle" disabled>Shuffle</button>
+      <button id="reset">Reset</button>
+    </div>
+  </details>
+
+  <!-- Playing Table accordion -->
+  <details open>
+    <summary>Playing Table</summary>
+    <div>
+      <table class="playing-table">
+        <colgroup>
+          <col style="width: 45%;">
+          <col style="width: 10%;">
+          <col style="width: 45%;">
+        </colgroup>
+        <tbody>
+
+          <!-- ROW 1 -->
+          <tr>
+            <!-- Alice -->
+            <td id="alice-cell">
+              <div class="player-name">Alice</div>
+              <div class="card-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+              <div class="card-row second-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+            </td>
+
+            <!-- Discard pile -->
+            <td class="discard-cell">
+              <button id="end-turns" class="end-turns-button" disabled>End Round</button>
+              <div id="discard-pile" class="deck empty"></div>
+              <div id="discard-count">Discarded: 0</div>
+            </td>
+
+            <!-- Bob -->
+            <td id="bob-cell">
+              <div class="player-name">Bob</div>
+              <div class="card-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+              <div class="card-row second-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- ROW 2 -->
+          <tr>
+            <!-- Carol -->
+            <td id="carol-cell">
+              <div class="player-name">Carol</div>
+              <div class="card-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+              <div class="card-row second-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+            </td>
+
+            <!-- Deck -->
+            <td class="deck-cell">
+              <div>
+                <div class="player-name deck-label">Deck</div>
+                <div class="deck step1" id="deck">
+                  <div class="card">?</div>
+                  <div class="card">?</div>
+                  <div class="card">?</div>
+                  <div class="card">?</div>
+                  <div class="card">?</div>
+                </div>
+                <div id="deck-count">79 cards</div>
+              </div>
+            </td>
+
+            <!-- Dave -->
+            <td id="dave-cell">
+              <div class="player-name">Dave</div>
+              <div class="card-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+              <div class="card-row second-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- ROW 3 -->
+          <tr>
+            <!-- Eve -->
+            <td id="eve-cell">
+              <div class="player-name">Eve</div>
+              <div class="card-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+              <div class="card-row second-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+            </td>
+
+            <!-- Stay button -->
+            <td class="stay-cell">
+				<button id="stay-button" class="stay-button">🪬 Stay</button>
+            </td>
+
+            <!-- Frank -->
+            <td id="frank-cell">
+              <div class="player-name">Frank</div>
+              <div class="card-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+              <div class="card-row second-row">
+                <div class="card"></div><div class="card"></div><div class="card"></div>
+                <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+              </div>
+            </td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Status message area -->
+    <div id="status" style="margin:10px;font-weight:bold;color:#fff;"></div>
+  </details>
+
+  <!-- Scoring accordion -->
+  <details>
+    <summary>Scoring</summary>
+    <div>
+      <table>
+        <thead>
+          <tr><th>
+        <tbody>
+          <tr><td>Alice</td><td>0</td></tr>
+          <tr><td>Bob</td><td>0</td></tr>
+          <tr><td>Carol</td><td>0</td></tr>
+          <tr><td>Dave</td><td>0</td></tr>
+          <tr><td>Eve</td><td>0</td></tr>
+          <tr><td>Frank</td><td>0</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <!-- Begin JavaScript -->
+  <script>
+/********************************************
+ * GAME LOGIC — FULL JAVASCRIPT (CORRECTED)
+ ********************************************/
+
+// Player order (cell IDs)
+const players = [
+  "alice-cell",
+  "bob-cell",
+  "carol-cell",
+  "dave-cell",
+  "eve-cell",
+  "frank-cell"
+];
+
+const playerNames = [
+  "Alice","Bob","Carol","Dave","Eve","Frank"
+];
+
+let roundOver = false;
+
+// Track which players have stayed
+let stayed = [false, false, false, false, false, false];
+
+// Start with Alice
+let currentPlayerIndex = 0;
+updateActivePlayerHighlight();
+
+
+// DOM references
+const deck = document.getElementById("deck");
+const shuffleButton = document.getElementById("shuffle");
+const resetButton = document.getElementById("reset");
+const endTurnsButton = document.getElementById("end-turns");
+const stayButton = document.getElementById("stay-button");
+
+const discardPile = document.getElementById("discard-pile");
+const discardCountDisplay = document.getElementById("discard-count");
+const status = document.getElementById("status");
+
+// Deck state
+let totalCards = 79;
+let maxDeckSize = totalCards;
+let currentStep = 1;
+let discardCount = 0;
+
+// Flick direction alternates left/right
+let flickDirection = "left";
+
+// Example deck images
+const deckImages = [
+  "1.png","2.png","4.png","6.png","8.png",
+  "11.png","5.png","4.png","5.png"
+];
+let currentImageIndex = 0;
+
+// Max cards per player in second row
+const MAX_CARDS = 7;
+
+/********************************************
+ * UPDATE DECK THICKNESS STEP
+ ********************************************/
+function updateDeckStep() {
+  let percent = (totalCards / maxDeckSize) * 100;
+  let newStep;
+
+  if (totalCards === 0) newStep = 10;
+  else if (percent > 90) newStep = 1;
+  else if (percent > 75) newStep = 2;
+  else if (percent > 60) newStep = 3;
+  else if (percent > 50) newStep = 4;
+  else if (percent > 40) newStep = 5;
+  else if (percent > 30) newStep = 6;
+  else if (percent > 20) newStep = 7;
+  else if (percent > 10) newStep = 8;
+  else newStep = 9;
+
+  deck.classList.remove(`step${currentStep}`);
+  currentStep = newStep;
+  deck.classList.add(`step${currentStep}`);
+}
+
+
+
+/********************************************
+ * HIGHLIGHT ACTIVE PLAYER
+ ********************************************/
+function updateActivePlayerHighlight() {
+  // Clear highlights and apply red for stayed players
+  players.forEach((id, index) => {
+    const cell = document.getElementById(id);
+
+    cell.classList.remove("active-player");
+    if (stayed[index]) {
+      cell.classList.add("stayed-player");
+    } else {
+      cell.classList.remove("stayed-player");
+    }
+  });
+
+  // Highlight current player yellow ONLY if not stayed
+  if (!stayed[currentPlayerIndex]) {
+    const activeCell = document.getElementById(players[currentPlayerIndex]);
+    activeCell.classList.add("active-player");
+  }
+}
+
+
+
+/********************************************
+ * MOVE TO NEXT NON-STAYED PLAYER
+ ********************************************/
+function moveToNextAvailablePlayer() {
+  // If all players stayed → end round logic
+  if (stayed.every(v => v === true)) {
+    roundOver = true;
+    deck.classList.add("disabled");
+    status.textContent = "All players have stayed. You may now End Round.";
+    endTurnsButton.disabled = false;  // enable End Round here if you want
+    return;
+  }
+
+  // Find next player who has NOT stayed
+  let next = currentPlayerIndex;
+  do {
+    next = (next + 1) % players.length;
+  } while (stayed[next] === true);
+
+  currentPlayerIndex = next;
+  updateActivePlayerHighlight();
+  status.textContent = "Next player: " + playerNames[currentPlayerIndex];
+}
+
+
+/********************************************
+ * DRAW CARD FROM DECK
+ ********************************************/
+deck.addEventListener("click", () => {
+  // Block if round over or deck disabled/empty
+  if (roundOver || totalCards <= 0 || deck.classList.contains("disabled")) return;
+
+  const topCard = deck.querySelector(".card:last-child");
+
+  // Lock which player is drawing on THIS click
+  const thisPlayerIndex = currentPlayerIndex;
+
+  // Flick animation
+  if (flickDirection === "left") {
+    topCard.style.transform = "translateX(-150px) rotate(-20deg)";
+  } else {
+    topCard.style.transform = "translateX(150px) rotate(20deg)";
+  }
+  topCard.style.opacity = "0";
+
+  // After animation, place card for the locked player
+  setTimeout(() => {
+    const playerCell = document.getElementById(players[thisPlayerIndex]);
+
+    // Fill TOP row first, then bottom row
+    const slots = playerCell.querySelectorAll(".card-row .card");
+
+    for (let slot of slots) {
+      if (!slot.querySelector("img") && currentImageIndex < deckImages.length) {
+        slot.innerHTML = `<img src="${deckImages[currentImageIndex]}"
+          style="width:100%;height:100%;border-radius:6px;">`;
+        currentImageIndex++;
+        break;
+      }
+    }
+
+    // Recycle card to bottom of deck
+    deck.insertBefore(topCard, deck.firstChild);
+    topCard.style.transform = "translateX(0) rotate(0)";
+    topCard.style.opacity = "1";
+  }, 400);
+
+  // Update deck count
+  totalCards--;
+  document.getElementById("deck-count").textContent = totalCards + " cards";
+  updateDeckStep();
+
+  if (totalCards <= 0) {
+    deck.classList.add("disabled");
+    shuffleButton.disabled = false;
+  }
+
+  // ADVANCE TURN: use our helper, not raw index++
+  moveToNextAvailablePlayer();
+});
+
+
+
+
+
+
+
+/********************************************
+ * SHUFFLE BUTTON — RESET FROM DISCARD
+ ********************************************/
+shuffleButton.addEventListener("click", () => {
+  if (discardCount === 0) return;
+
+  totalCards = discardCount;
+  maxDeckSize = totalCards;
+  discardCount = 0;
+
+  discardPile.innerHTML = "";
+  discardPile.classList.add("empty");
+
+  document.getElementById("deck-count").textContent = totalCards + " cards";
+  discardCountDisplay.textContent = "Discarded: 0";
+
+  deck.classList.remove(`step${currentStep}`, "disabled");
+  currentStep = 1;
+  deck.classList.add("step1");
+
+  shuffleButton.disabled = true;
+});
+
+/********************************************
+ * RESET BUTTON — FULL RESET
+ ********************************************/
+resetButton.addEventListener("click", () => {
+  totalCards = 79;
+  maxDeckSize = totalCards;
+  discardCount = 0;
+  currentImageIndex = 0;
+
+  discardPile.innerHTML = "";
+  discardPile.classList.add("empty");
+  discardCountDisplay.textContent = "Discarded: 0";
+
+  document.getElementById("deck-count").textContent = totalCards + " cards";
+
+  deck.classList.remove(`step${currentStep}`, "disabled");
+  currentStep = 1;
+  deck.classList.add("step1");
+
+  // Clear all player card slots
+  players.forEach(id => {
+    const playerCell = document.getElementById(id);
+    const slots = playerCell.querySelectorAll(".card");
+    slots.forEach(slot => {
+      slot.innerHTML = slot.textContent; // restore original label
+    });
+  });
+
+	// Reset stayed flags
+	stayed = [false, false, false, false, false, false];
+
+	// Remove stayed/active classes from all players
+	players.forEach(id => {
+	  const cell = document.getElementById(id);
+	  cell.classList.remove("stayed-player", "active-player");
+	});
+
+	roundOver = false;
+	deck.classList.remove("disabled");
+
+	// Reset turn order to Alice
+	currentPlayerIndex = 0;
+	updateActivePlayerHighlight();   // <-- IMPORTANT
+
+	flickDirection = "left";
+	status.textContent = "Game reset. Alice draws first.";
+
+	shuffleButton.disabled = true;
+	endTurnsButton.disabled = true;
+
+
+	});
+
+/********************************************
+ * END TURNS — SWEEP ALL CARDS TO DISCARD
+ ********************************************/
+endTurnsButton.addEventListener("click", () => {
+  let sweptCount = 0;
+
+  players.forEach(id => {
+    const playerCell = document.getElementById(id);
+    const slots = playerCell.querySelectorAll(".card-row .card");
+
+    slots.forEach(slot => {
+      const img = slot.querySelector("img");
+      if (img) {
+        sweptCount++;
+        slot.innerHTML = slot.textContent; // restore original label
+      }
+    });
+  });
+
+  discardCount += sweptCount;
+
+  discardPile.innerHTML = "";
+  discardPile.classList.add("empty");
+  discardCountDisplay.textContent = "Discarded: " + discardCount;
+
+  status.textContent = "End Turns: all player cards swept to discard.";
+});
+
+
+/********************************************
+ * STAY BUTTON PRESSED
+ ********************************************/
+stayButton.addEventListener("click", () => {
+    // Mark current player as stayed
+    stayed[currentPlayerIndex] = true;
+
+    // Turn them red
+    const cell = document.getElementById(players[currentPlayerIndex]);
+    cell.classList.remove("active-player");
+    cell.classList.add("stayed-player");
+	
+	//Enable End Round ONLY when all players stayed	
+	if (stayed.every(v => v === true)) {
+		endTurnsButton.disabled = false;
+	}
+
+
+    // Move to next available player
+    moveToNextAvailablePlayer();
+});
+
+
+/********************************************
+ * INITIAL STATUS MESSAGE
+ ********************************************/
+status.textContent = "Game start. Alice draws first.";
+
+  </script>
+
+</body>
+</html>

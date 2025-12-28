@@ -59,7 +59,7 @@ const pool = new Pool({
  */
 (async () => {
   try {
-    // Card definitions (value, filename, count)
+    // Card definitions
     await pool.query(`
       CREATE TABLE IF NOT EXISTS card_types (
         value TEXT PRIMARY KEY,
@@ -78,13 +78,13 @@ const pool = new Pool({
         round_number INT NOT NULL DEFAULT 1,
         round_over BOOLEAN NOT NULL DEFAULT FALSE,
         paused BOOLEAN NOT NULL DEFAULT FALSE,
-        pending_action_type TEXT,          -- NULL, 'Freeze', 'Swap', 'Take3', 'SecondChance'
-        pending_action_actor_id INT,       -- player id who must act
-        pending_action_value TEXT          -- e.g. card value for Second Chance
+        pending_action_type TEXT,
+        pending_action_actor_id INT,
+        pending_action_value TEXT
       );
     `);
 
-    // Players within a room
+    // Players
     await pool.query(`
       CREATE TABLE IF NOT EXISTS room_players (
         id SERIAL PRIMARY KEY,
@@ -131,7 +131,7 @@ const pool = new Pool({
       );
     `);
 
-    // Round scores history
+    // Round scores
     await pool.query(`
       CREATE TABLE IF NOT EXISTS round_scores (
         id SERIAL PRIMARY KEY,
@@ -147,7 +147,6 @@ const pool = new Pool({
     console.error("DB init error:", err);
   }
 })();
-
 
 /**
  * ============================================================
@@ -1540,6 +1539,7 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Flip‑to‑6 server running on port " + PORT);
 });
+
 
 
 

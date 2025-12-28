@@ -1,102 +1,160 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Flip-6: Draw Pile Viewer</title>
+  <meta charset="UTF-8" />
+  <title>Card Deck Viewer</title>
 
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #222;
-      color: #fff;
+      background: #111;
+      color: #eee;
+      margin: 0;
       padding: 20px;
     }
 
-    .card {
-      width: 60px;
-      height: 90px;
-      border-radius: 6px;
-      border: 2px solid #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 4px;
-      font-size: 20px;
-      font-weight: bold;
-      background: #333;
-      color: #fff;
+    #container {
+      max-width: 600px;
+      margin: auto;
+      background: #222;
+      padding: 20px;
+      border-radius: 8px;
     }
 
-    .action {
-      background: purple;
-      border-color: #ffb3ff;
+    h1 {
+      text-align: center;
+      margin-top: 0;
     }
 
-    #pile {
-      display: flex;
-      flex-wrap: wrap;
+    #deck {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
       gap: 6px;
+      margin-top: 20px;
     }
 
-    #roomInput {
-      width: 120px;
+    .card {
+      background: #222;
+      border-radius: 4px;
+      padding: 8px;
+      text-align: center;
+      font-size: 0.85rem;
+      border: 1px solid #333;
+    }
+
+    .card.special {
+      background: #4b2a85;
+      border-color: #aa88ff;
+    }
+
+    .card.number {
+      background: #1d3a3a;
+      border-color: #33aaaa;
+    }
+
+    .card-label {
+      font-weight: bold;
+      display: block;
+    }
+
+    .card-index {
+      font-size: 0.7rem;
+      color: #aaa;
+    }
+
+    input {
       padding: 6px;
-      font-size: 16px;
+      font-size: 1em;
+      width: 120px;
     }
 
     button {
       padding: 6px 12px;
-      font-size: 16px;
-      margin-left: 10px;
+      font-size: 1em;
+      cursor: pointer;
+      margin-left: 6px;
     }
   </style>
 </head>
 
 <body>
 
+<div id="container">
   <h1>Draw Pile Viewer</h1>
 
-  <div>
-    <input id="roomInput" placeholder="Room Code">
-    <button onclick="loadPile()">Load</button>
-  </div>
+  <p>Enter Room Code:</p>
+  <input id="roomCode" placeholder="ABCD">
+  <button onclick="loadPile()">Load</button>
 
-  <h3 id="count"></h3>
+  <div id="deck"></div>
+</div>
 
-  <div id="pile"></div>
+<script>
+/* ============================================================
+   HELPER: Detect if card is an action card
+   ============================================================ */
+function isAction(value) {
+  return !/^(?:[0-9]|1[0-2])$/.test(value);
+}
 
-  <script>
-    function isAction(value) {
-      return !/^(?:[0-9]|1[0-2])$/.test(value);
-    }
+/* ============================================================
+   RENDER DECK
+   ============================================================ */
+function renderDeck(deckArray) {
+  const deckEl = document.getElementById("deck");
+  deckEl.innerHTML = "";
 
-    async function loadPile() {
-      const code = document.getElementById("roomInput").value.trim().toUpperCase();
-      if (!code) return;
+  deckArray.forEach((value, index) => {
+    const div = document.createElement("div");
 
-      const res = await fetch(`/api/room/${code}/draw-pile`);
-      const data = await res.json();
+    const isNumberCard = !isAction(value);
+    div.className = "card " + (isNumberCard ? "number" : "special");
 
-      if (!data.success) {
-        alert("Error: " + (data.error || "Unknown"));
-        return;
-      }
+    const label = document.createElement("span");
+    label.className = "card-label";
+    label.textContent = value;
 
-      const pile = data.drawPile;
-      document.getElementById("count").textContent = `Cards: ${pile.length}`;
+    const idx = document.createElement("span");
+    idx.className = "card-index";
+    idx.textContent = "#" + index;
 
-      const pileDiv = document.getElementById("pile");
-      pileDiv.innerHTML = "";
+    div.appendChild(label);
+    div.appendChild(idx);
+    deckEl.appendChild(div);
+  });
+}
 
-      pile.forEach(card => {
-        const div = document.createElement("div");
-        div.classList.add("card");
-        if (isAction(card.value)) div.classList.add("action");
-        div.textContent = card.value;
-        pileDiv.appendChild(div);
-      });
-    }
-  </script>
+/* ============================================================
+   LOAD DECK FROM SERVER
+   ============================================================ */
+async function loadPile() {
+  const code = document.getElementById("roomCode").value.trim().toUpperCase();
+  if (!code) {
+    alert("Enter a room code");
+    return;
+  }
+
+  const res = await fetch(`/api/room/${code}/draw-pile`);
+  const data = await res.json();
+
+  if (!data.success) {
+    alert(data.error || "Failed to load deck");
+    return;
+  }
+
+  if (!data.drawPile.length) {
+    alert("No cards in draw pile.");
+    return;
+  }
+
+  // Convert DB rows → ordered array of values
+  const ordered = data.drawPile
+    .sort((a, b) => a.position - b.position)
+    .map(d => d.value);
+
+  renderDeck(ordered);
+}
+</script>
 
 </body>
 </html>

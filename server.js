@@ -942,10 +942,14 @@ app.post("/api/player/join", async (req, res) => {
     res.json({
       redirect: `/room/${code}?playerId=${playerId}`
     });
-  } catch (err) {
-    console.error("player/join error:", err);
-    res.status(500).json({ error: "Join failed." });
-  }
+   } catch (err) {
+     console.error("JOIN ERROR:", err);
+   
+     // Return the REAL SQL error to the browser
+     res.status(500).json({
+       error: "JOIN ERROR: " + err.message
+     });
+   }
 });
 
 // Serve the playing board
@@ -1536,5 +1540,6 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Flip‑to‑6 server running on port " + PORT);
 });
+
 
 

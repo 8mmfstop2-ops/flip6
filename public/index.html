@@ -1,29 +1,188 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Show Card Example</title>
+  <meta charset="utf-8" />
+  <title>Player Login — Flip to 6</title>
+
   <style>
-    #card-img {
-      display: none;         /* hidden at the start */
-      max-width: 300px;
-      margin-top: 20px;
+    body { 
+      font-family: Arial, sans-serif; 
+      background:#e8f5e9; 
+      display:flex; 
+      justify-content:center; 
+      align-items:center; 
+      min-height:100vh; 
+      margin:0; 
+    }
+
+    .card {
+      position: relative;
+      background:#f8f7e9;
+      background-image: url('flip6-login.png');
+      background-size: cover;
+      background-position: center;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      width: 100%;
+      max-width: 600px;
+      min-height: 800px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    h1 {
+      color: white;
+      font-weight: 900;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      margin-bottom: 40px;
+      font-size: 32px;
+    }
+
+    .form-area {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding-bottom: 80px;
+    }
+
+    .row {
+      display: flex;
+      gap: 50px;
+    }
+
+    .name-box {
+      width: 260px;
+      margin-left: 44px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      font-size: 22px; 
+      font-weight: bold;
+    }
+
+    .room-box {
+      width: 175px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      font-size: 22px; 
+      font-weight: bold;
+    }
+
+    .row label {
+      color: white;
+      font-weight: bold;
+    }
+
+    .row input {
+      width: 100%;
+      font-size: 18px;
+      padding: 12px;
+      border-radius: 8px;
       border: 1px solid #ccc;
+    }
+
+    .card button {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80%;
+      padding: 16px;
+      font-size: 20px;
+      background: #2e7d32;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .card button:hover {
+      background:#F76ACF;
+    }
+
+    .settings-icon {
+      position: absolute;
+      top: 30px;
+      right: 30px;  
+      font-size: 40px;
+      font-weight: 900;
+      text-shadow: 0 0 4px rgba(0,0,0,0.6);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #msg {
+      color: red;
+      text-align: center;
+      margin-top: 10px;
+      font-weight: bold;
     }
   </style>
 </head>
-<body>
-  <button id="show-card-btn">Show Card</button>
 
-  <!-- Image is in subfolder "cards/0.png" relative to this HTML file -->
-  <img id="card-img" src="cards/0.png" alt="Card image" />
+<body>
+  <div class="card">
+    <div class="settings-icon" id="settingsBtn">⚙️</div>
+
+    <h1>Player Login</h1>
+
+    <div class="form-area">
+      <div class="row">
+        <div class="name-box">
+          <label>Your Name</label>
+          <input id="name" placeholder="Enter your name" name="name" required />
+        </div>
+
+        <div class="room-box">
+          <label>Room Code</label>
+          <input id="roomCode"  placeholder="e.g. RM92a" name="roomCode" required />
+        </div>
+      </div>
+    </div>
+
+    <button id="joinBtn">Join Game Room</button>
+
+    <div id="msg"></div>
+  </div>
 
   <script>
-    const button = document.getElementById('show-card-btn');
-    const img = document.getElementById('card-img');
+    document.getElementById("joinBtn").addEventListener("click", async () => {
+      const name = document.getElementById("name").value.trim();
+      const roomCode = document.getElementById("roomCode").value.trim().toUpperCase();
+      const msg = document.getElementById("msg");
 
-    button.addEventListener('click', () => {
-      img.style.display = 'block';   // show the image
+      msg.textContent = "";
+
+      if (!name || !roomCode) {
+        msg.textContent = "Please enter both name and room code.";
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/player/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, roomCode })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          msg.textContent = data.error || "Unable to join room.";
+          return;
+        }
+
+        // Redirect to the playing table
+        window.location.href = data.redirect;
+
+      } catch (err) {
+        msg.textContent = "Network error. Try again.";
+      }
+    });
+
+    document.getElementById("settingsBtn").addEventListener("click", () => {
+      window.open("admin-login.html", "_blank");
     });
   </script>
 </body>

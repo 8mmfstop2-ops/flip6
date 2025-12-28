@@ -147,6 +147,27 @@
   </div>
 
   <script>
+
+    async function ensureDeckInitialized() {
+      try {
+        // Check if card_types already has data
+        const res = await fetch("/api/cards/meta");
+        const data = await res.json();
+    
+        // If no cards exist → initialize deck definitions
+        if (!data.success || !data.cards || data.cards.length === 0) {
+          console.log("Initializing card_types...");
+          const initRes = await fetch("/api/init-deck", { method: "POST" });
+          const initData = await initRes.json();
+          console.log("Init result:", initData);
+        } else {
+          console.log("card_types already initialized.");
+        }
+      } catch (err) {
+        console.error("Error checking deck initialization:", err);
+      }
+    }
+    
     document.getElementById("joinBtn").addEventListener("click", async () => {
       const name = document.getElementById("name").value.trim();
       const roomCode = document.getElementById("roomCode").value.trim().toUpperCase();
@@ -184,6 +205,14 @@
     document.getElementById("settingsBtn").addEventListener("click", () => {
       window.open("admin-login.html", "_blank");
     });
+
+
+  
+  // Run automatically when index.html loads
+  ensureDeckInitialized();
+ 
+    
   </script>
 </body>
 </html>
+

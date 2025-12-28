@@ -1,203 +1,102 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Card Deck</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <meta charset="utf-8">
+  <title>Flip-6: Draw Pile Viewer</title>
 
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #111;
-      color: #eee;
-      margin: 0;
+      background: #222;
+      color: #fff;
       padding: 20px;
     }
-    h1 {
-      margin-top: 0;
-    }
-    .controls {
-      margin-bottom: 20px;
-    }
-    button {
-      margin-right: 10px;
-      padding: 8px 14px;
-      border-radius: 4px;
-      border: none;
-      cursor: pointer;
-      background: #2d6cdf;
-      color: #fff;
-      font-weight: bold;
-    }
-    button:disabled {
-      background: #555;
-      cursor: default;
-    }
-    #status {
-      margin-top: 10px;
-      font-size: 0.9rem;
-      color: #ccc;
-    }
-    #deck {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-      gap: 6px;
-      margin-top: 20px;
-    }
+
     .card {
-      background: #222;
-      border-radius: 4px;
-      padding: 8px;
-      text-align: center;
-      font-size: 0.85rem;
-      border: 1px solid #333;
-    }
-    .card.special {
-      background: #4b2a85;
-      border-color: #aa88ff;
-    }
-    .card.number {
-      background: #1d3a3a;
-      border-color: #33aaaa;
-    }
-    .card-label {
+      width: 60px;
+      height: 90px;
+      border-radius: 6px;
+      border: 2px solid #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 4px;
+      font-size: 20px;
       font-weight: bold;
-      display: block;
+      background: #333;
+      color: #fff;
     }
-    .card-index {
-      font-size: 0.7rem;
-      color: #aaa;
+
+    .action {
+      background: purple;
+      border-color: #ffb3ff;
+    }
+
+    #pile {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    #roomInput {
+      width: 120px;
+      padding: 6px;
+      font-size: 16px;
+    }
+
+    button {
+      padding: 6px 12px;
+      font-size: 16px;
+      margin-left: 10px;
     }
   </style>
 </head>
 
 <body>
-  <h1>Card Deck v1.0.1</h1>
 
-  <div class="controls">
-    <button id="initBtn">Initialize Deck</button>
-    <button id="shuffleBtn">Shuffle Deck.</button>
-    <span id="status"></span>
+  <h1>Draw Pile Viewer</h1>
+
+  <div>
+    <input id="roomInput" placeholder="Room Code">
+    <button onclick="loadPile()">Load</button>
   </div>
 
-  <div id="deck"></div>
+  <h3 id="count"></h3>
 
-  <!-- INLINE JAVASCRIPT -->
+  <div id="pile"></div>
+
   <script>
-    const socket = io();
-
-    const initBtn = document.getElementById("initBtn");
-    const shuffleBtn = document.getElementById("shuffleBtn");
-    const statusEl = document.getElementById("status");
-    const deckEl = document.getElementById("deck");
-
-    function setStatus(msg) {
-      statusEl.textContent = msg;
+    function isAction(value) {
+      return !/^(?:[0-9]|1[0-2])$/.test(value);
     }
 
-    function setButtonsDisabled(disabled) {
-      initBtn.disabled = disabled;
-      shuffleBtn.disabled = disabled;
-    }
+    async function loadPile() {
+      const code = document.getElementById("roomInput").value.trim().toUpperCase();
+      if (!code) return;
 
-    async function initDeck() {
-      try {
-        setButtonsDisabled(true);
-        setStatus("Initializing deck...");
-        const res = await fetch("/api/init-deck", { method: "POST" });
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error || "Unknown error");
-        setStatus("Deck initialized.");
-      } catch (err) {
-        console.error(err);
-        setStatus("Error initializing deck.");
-      } finally {
-        setButtonsDisabled(false);
+      const res = await fetch(`/api/room/${code}/draw-pile`);
+      const data = await res.json();
+
+      if (!data.success) {
+        alert("Error: " + (data.error || "Unknown"));
+        return;
       }
+
+      const pile = data.drawPile;
+      document.getElementById("count").textContent = `Cards: ${pile.length}`;
+
+      const pileDiv = document.getElementById("pile");
+      pileDiv.innerHTML = "";
+
+      pile.forEach(card => {
+        const div = document.createElement("div");
+        div.classList.add("card");
+        if (isAction(card.value)) div.classList.add("action");
+        div.textContent = card.value;
+        pileDiv.appendChild(div);
+      });
     }
-
-    async function shuffleDeck() {
-      try {
-        setButtonsDisabled(true);
-        setStatus("Shuffling deck...");
-        const res = await fetch("/api/shuffle-deck", { method: "POST" });
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error || "Unknown error");
-        renderDeck(data.deck);
-        setStatus("Deck shuffled.");
-      } catch (err) {
-        console.error(err);
-        setStatus("Error shuffling deck.");
-      } finally {
-        setButtonsDisabled(false);
-      }
-    }
-
-
-  function isAction(value) {
-    if (/^(?:[0-9]|1[0-2])$/.test(value)) {
-      return false;
-    }
-    return true;
-  }
-  
-  function renderDeck(deckArray) {
-    deckEl.innerHTML = "";
-  
-    deckArray.forEach((card, index) => {
-      const value = typeof card === "string" ? card : card.value;
-  
-      const div = document.createElement("div");
-  
-      const isNumberCard = !isAction(value);
-      div.className = "card " + (isNumberCard ? "number" : "special");
-  
-      const label = document.createElement("span");
-      label.className = "card-label";
-      label.textContent = value;
-  
-      const idx = document.createElement("span");
-      idx.className = "card-index";
-      idx.textContent = "#" + index;
-  
-      div.appendChild(label);
-      div.appendChild(idx);
-      deckEl.appendChild(div);
-    });
-  }
-
-
-
-    initBtn.addEventListener("click", initDeck);
-    shuffleBtn.addEventListener("click", shuffleDeck);
-
-    socket.on("deckUpdated", (deck) => {
-      renderDeck(deck);
-      setStatus("Deck updated (via socket).");
-    });
-
-    (async function loadExistingDeck() {
-      try {
-        const res = await fetch("/api/deck");
-        const data = await res.json();
-        if (data.success && data.deck && data.deck.length > 0) {
-          const ordered = data.deck
-            .sort((a, b) => a.position - b.position)
-            .map((d) => d.value);
-          renderDeck(ordered);
-          setStatus("Existing deck loaded.");
-        }
-      } catch (err) {
-        // ignore if no deck exists yet
-      }
-    })();
   </script>
+
 </body>
 </html>
-
-
-
-
-
-
-

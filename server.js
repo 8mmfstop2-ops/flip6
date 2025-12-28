@@ -623,6 +623,25 @@ app.get("/api/room/:code/draw-pile", async (req, res) => {
 });
 
 
+// Returns mapping of card value -> filename (for PNGs)
+app.get("/api/cards/meta", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT value, filename FROM card_types ORDER BY value"
+    );
+    res.json({
+      success: true,
+      cards: result.rows // [{ value, filename }, ...]
+    });
+  } catch (err) {
+    console.error("cards/meta error:", err);
+    res.status(500).json({ success: false, error: "Failed to load card metadata" });
+  }
+});
+
+
+
+
 /*----- Socket.io Events ----- */
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
@@ -755,3 +774,4 @@ io.on("connection", (socket) => {
 /* ----- Start Server ----- */
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Flip‑to‑6 server running on port " + PORT));
+

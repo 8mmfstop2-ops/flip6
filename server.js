@@ -148,13 +148,14 @@ const pool = new Pool({
   }
 })();
 
+
 /**
  * ============================================================
  * SHUFFLING HELPERS
  * ============================================================
  */
 
-// Standard Fisher–Yates shuffle for numeric cards
+// Standard Fisher–Yates shuffle
 function fisherYates(deck) {
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -162,21 +163,30 @@ function fisherYates(deck) {
   }
 }
 
-// Attempt to force a streak of length 'length' for numeric cards
+// Detect numeric vs action card
+function isAction(value) {
+  return !/^(?:[0-9]|1[0-2])$/.test(value);
+}
+
+// Try to force a streak of identical numeric cards
 function forceStreak(deck, length) {
   const start = Math.floor(Math.random() * (deck.length - length + 1));
+
   for (let offset = 0; offset < deck.length - length + 1; offset++) {
     const i = (start + offset) % (deck.length - length + 1);
     let streak = true;
+
     for (let j = 1; j < length; j++) {
       if (deck[i].value !== deck[i + j].value) {
         streak = false;
         break;
       }
     }
+
     if (!streak) {
       const targetValue = deck[i].value;
       const idx = deck.findIndex((c, idx2) => idx2 >= i + length && c.value === targetValue);
+
       if (idx !== -1) {
         [deck[i + length - 1], deck[idx]] = [deck[idx], deck[i + length - 1]];
         return true;
@@ -186,44 +196,89 @@ function forceStreak(deck, length) {
   return false;
 }
 
-function isAction(value) {
-  return !/^(?:[0-9]|1[0-2])$/.test(value);
+/**
+ * ============================================================
+ * ADAPTIVE ACTION-CARD DISTRIBUTION
+ * ============================================================
+ */
+
+// Create zones based on deck size (percentages)
+function makeZones(deckSize) {
+  return [
+    [Math.floor(deckSize * 0.10), Math.floor(deckSize * 0.30)],
+    [Math.floor(deckSize * 0.30), Math.floor(deckSize * 0.65)],
+    [Math.floor(deckSize * 0.65), Math.floor(deckSize * 0.80)],
+    [Math.floor(deckSize * 0.80), deckSize - 1]
+  ];
 }
 
-// Hybrid shuffle: numeric base, then interleave action cards
+// Insert action cards into adaptive zones
+function distributeActionsAdaptive(result, actionCards) {
+  const deckSize = result.length;
+  const zones = makeZones(deckSize);
+
+  let actionIndex = 0;
+
+  for (let z = 0; z < zones.length; z++) {
+    if (actionIndex >= actionCards.length) break;
+
+    const [minPos, maxPos] = zones[z];
+    if (minPos >= maxPos) continue; // tiny deck safety
+
+    // Insert 1–3 cards (capped by remaining)
+    const count = Math.min(
+      Math.floor(Math.random() * 3) + 1,
+      actionCards.length - actionIndex
+    );
+
+    // Random insertion point inside the zone
+    const insertPos = Math.floor(Math.random() * (maxPos - minPos + 1)) + minPos;
+
+    for (let i = 0; i < count; i++) {
+      result.splice(insertPos, 0, actionCards[actionIndex++]);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * ============================================================
+ * MAIN HYBRID SHUFFLE
+ * ============================================================
+ */
+
 function hybridShuffle(deck, streakLengths = [2, 3]) {
   const numberCards = [];
   const actionCards = [];
 
+  // Split deck
   for (const card of deck) {
     if (isAction(card.value)) actionCards.push(card);
     else numberCards.push(card);
   }
 
+  // Shuffle numeric cards
   fisherYates(numberCards);
+
+  // Force streaks
   streakLengths.forEach(len => forceStreak(numberCards, len));
+
+  // Shuffle action cards
   fisherYates(actionCards);
 
-  const maxActions = 14;
-  const actionsToUse = actionCards.slice(0, maxActions);
+  // Use up to 14 action cards (or fewer if deck is small)
+  const actionsToUse = actionCards.slice(0, 14);
 
+  // Start with numeric backbone
   let result = [...numberCards];
-  let insertPos = Math.floor(Math.random() * (18 - 7 + 1)) + 7;
 
-  for (let i = 0; i < actionsToUse.length; i++) {
-    result.splice(insertPos, 0, actionsToUse[i]);
-
-    if (Math.random() < 0.25 && i + 1 < actionsToUse.length) {
-      result.splice(insertPos + 1, 0, actionsToUse[i + 1]);
-      i++;
-    }
-
-    insertPos += Math.floor(Math.random() * (8 - 2 + 1)) + 2;
-    if (insertPos > result.length - 1) insertPos = result.length - 1;
-  }
+  // Distribute action cards adaptively
+  result = distributeActionsAdaptive(result, actionsToUse);
 
   return result;
 }
+
 
 /**
  * ============================================================
@@ -1481,4 +1536,5 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Flip‑to‑6 server running on port " + PORT);
 });
+
 

@@ -739,21 +739,31 @@ function renderDeck(state) {
 
   const topCards = state.topDrawCards || [];
   const maxShow = Math.min(topCards.length, 5);
+   
+   for (let i = 0; i < maxShow; i++) {
+     const cardEl = document.createElement("div");
+     cardEl.classList.add("card");
+   
+     const img = document.createElement("img");
+   
+     if (i === 0) {
+       // Top card shows the back
+       img.src = "/cards/back.png";
+     } else {
+       // All other cards are blank white
+       img.src = ""; // no image
+       img.style.background = "#fff";
+       img.style.border = "2px solid #000";
+     }
+   
+     cardEl.appendChild(img);
+   
+     cardEl.style.top = (i * 4) + "px";
+     cardEl.style.left = (i * 4) + "px";
+   
+     deckDiv.appendChild(cardEl);
+   }
 
-  for (let i = 0; i < maxShow; i++) {
-    const value = topCards[i];
-    const cardEl = document.createElement("div");
-    cardEl.classList.add("card");
-
-    const img = document.createElement("img");
-    img.src = "/cards/back.png";
-    cardEl.appendChild(img);
-
-    cardEl.style.top = (i * 4) + "px";
-    cardEl.style.left = (i * 4) + "px";
-
-    deckDiv.appendChild(cardEl);
-  }
 
   deckCountDiv.textContent = state.deckCount + " cards";
 }
@@ -1136,6 +1146,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

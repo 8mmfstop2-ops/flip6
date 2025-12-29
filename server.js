@@ -20,16 +20,20 @@
  *      * 2x, 4+, 5+, 6‑ (scoring)
  *      * Freeze (choose target → auto-stay)
  *      * Swap  (choose target → swap hands, self allowed)
- *      * Take 3 (choose target → target draws 3)
+ *      * Take 3 (choose target → target draws 3, can be self)
  *  - Bust rule:
  *      * Duplicate number with no Second Chance → bust → stayed + round score = 0
  *  - Game pause:
- *      * If ANY player disconnects → game paused (Option B)
+ *      * If ANY player disconnects → game paused
  *      * Resume when all disconnected players rejoin or are removed
  *  - Reconnect:
  *      * Players rejoin by same name + room code, keep seat + cards + state
  *  - Socket.io real-time updates
  *  - Card metadata endpoint for PNGs
+ *  - UPDATED TURN FLOW:
+ *      * Draw does NOT auto-advance
+ *      * After draw/action, player chooses Stay or new Pass button
+ *      * Bust auto-advances turn
  * ============================================================
  */
 
@@ -517,6 +521,7 @@ async function advanceTurn(roomId) {
 
 // Compute score from a player's hand, considering 2x, 4+, 5+, 6‑
 // Note: bust rule is handled separately via round_bust flag
+// NOTE: You can later extend this to add the "6 cards in hand = +15" bonus.
 async function computeScore(roomId, playerId) {
   const res = await pool.query(
     `SELECT value FROM player_hands
@@ -568,6 +573,17 @@ async function endRound(roomId) {
 
     if (!p.round_bust) {
       score = await computeScore(roomId, pid);
+
+      // OPTIONAL: 6-card-hand bonus (+15) — enable when you're ready
+      const countRes = await pool.query(
+        `SELECT COUNT(*) FROM player_hands
+         WHERE room_id = $1 AND player_id = $2`,
+        [roomId, pid]
+      );
+      const cardCount = parseInt(countRes.rows[0].count, 10);
+      if (cardCount >= 6) {
+        score += 15;
+      }
     }
 
     await pool.query(
@@ -694,7 +710,7 @@ async function getState(roomId) {
  *
  * IMPORTANT:
  * - This function ONLY draws the card and sets up pending actions/bust.
- * - It does NOT advance the turn. Caller must do that.
+ * - It does NOT advance the turn. Caller decides whether/when to advance.
  * - It respects Second Chance and Bust rules.
  */
 
@@ -721,10 +737,7 @@ async function drawCardForPlayer(room, playerId) {
     // Add to hand
     await addToHand(roomId, playerId, value);
 
-    // Check duplicate
-    const hasDuplicate = await playerHasNumber(roomId, playerId, value);
-    // Note: playerHasNumber sees at least this card; we need to know if they had it BEFORE.
-    // Simple approach: check hand count of this value.
+    // Check duplicate (after adding)
     const dupRes = await pool.query(
       `SELECT COUNT(*) FROM player_hands
        WHERE room_id = $1 AND player_id = $2 AND value = $3`,
@@ -778,7 +791,7 @@ async function drawCardForPlayer(room, playerId) {
 
   // 4) Action cards: Freeze, Swap, Take 3
   if (instant.includes(value)) {
-    // Action card must appear in hand until resolved (Option 3)
+    // Action card must appear in hand until resolved
     await addToHand(roomId, playerId, value);
 
     // Set pending action so client enters target selection mode
@@ -911,66 +924,65 @@ app.post("/api/player/join", async (req, res) => {
     }
 
     // If player exists → rejoin (keep same playerId)
-   if (existing) {
-     const playerId = existing.player_id;
-     return res.json({
-       redirect: `/room/${code}?playerId=${playerId}`
-     });
-   }
+    if (existing) {
+      const playerId = existing.player_id;
+      return res.json({
+        redirect: `/room/${code}?playerId=${playerId}`
+      });
+    }
 
-   // Room unlocked and player not existing → create new slot
-   const playersRes = await pool.query(
-     `SELECT * FROM room_players
-      WHERE room_id = $1 AND active = TRUE
-      ORDER BY order_index`,
-     [room.id]
-   );
-   
-   if (playersRes.rows.length >= 6) {
-     return res.status(400).json({ error: "Room is full (6 players)." });
-   }
-   
-   // Compute next available player_id (1..6)
-   const idRes = await pool.query(
-     `SELECT player_id FROM room_players
-      WHERE room_id = $1
-      ORDER BY player_id ASC`,
-     [room.id]
-   );
-   
-   let playerId = 1;
-   for (const row of idRes.rows) {
-     if (row.player_id === playerId) {
-       playerId++;
-     } else {
-       break;
-     }
-   }
-   
-   // Compute seat order
-   const orderIndex = playersRes.rows.length;
-   
-   // Insert new player
-   const inserted = await pool.query(
-     `INSERT INTO room_players
-      (room_id, player_id, name, order_index, active, stayed, connected, round_bust)
-      VALUES ($1, $2, $3, $4, TRUE, FALSE, TRUE, FALSE)
-      RETURNING player_id`,
-     [room.id, playerId, cleanName, orderIndex]
-   );
-   
-   res.json({
-     redirect: `/room/${code}?playerId=${playerId}`
-   });
+    // Room unlocked and player not existing → create new slot
+    const playersRes = await pool.query(
+      `SELECT * FROM room_players
+       WHERE room_id = $1 AND active = TRUE
+       ORDER BY order_index`,
+      [room.id]
+    );
 
-   } catch (err) {
-     console.error("JOIN ERROR:", err);
-   
-     // Return the REAL SQL error to the browser
-     res.status(500).json({
-       error: "JOIN ERROR: " + err.message
-     });
-   }
+    if (playersRes.rows.length >= 6) {
+      return res.status(400).json({ error: "Room is full (6 players)." });
+    }
+
+    // Compute next available player_id (1..6)
+    const idRes = await pool.query(
+      `SELECT player_id FROM room_players
+       WHERE room_id = $1
+       ORDER BY player_id ASC`,
+      [room.id]
+    );
+
+    let playerId = 1;
+    for (const row of idRes.rows) {
+      if (row.player_id === playerId) {
+        playerId++;
+      } else {
+        break;
+      }
+    }
+
+    // Compute seat order
+    const orderIndex = playersRes.rows.length;
+
+    // Insert new player
+    await pool.query(
+      `INSERT INTO room_players
+       (room_id, player_id, name, order_index, active, stayed, connected, round_bust)
+       VALUES ($1, $2, $3, $4, TRUE, FALSE, TRUE, FALSE)`,
+      [room.id, playerId, cleanName, orderIndex]
+    );
+
+    res.json({
+      redirect: `/room/${code}?playerId=${playerId}`
+    });
+
+  } catch (err) {
+    console.error("JOIN ERROR:", err);
+
+    // Return the REAL SQL error to the browser
+    res.status(500).json({
+      error: "JOIN ERROR: " + err.message
+    });
+  }
 });
 
 // Serve the playing board
@@ -1023,60 +1035,59 @@ io.on("connection", (socket) => {
    *  - May unpause the room if no one is disconnected
    *  - Sends full stateUpdate to this socket
    */
-   socket.on("joinRoom", async ({ roomCode, playerId }) => {
-     try {
-       const code = String(roomCode || "").trim().toUpperCase();
-       const roomRes = await pool.query(
-         "SELECT * FROM rooms WHERE code = $1",
-         [code]
-       );
-       if (!roomRes.rows.length) return;
-   
-       const room = roomRes.rows[0];
-   
-       // FIX: use player_id instead of id
-       const playerRes = await pool.query(
-         `SELECT * FROM room_players
-          WHERE player_id = $1 AND room_id = $2 AND active = TRUE`,
-         [playerId, room.id]
-       );
-       if (!playerRes.rows.length) return;
-   
-       const player = playerRes.rows[0];
-   
-       // FIX: update using player_id instead of id
-       await pool.query(
-         `UPDATE room_players
-          SET socket_id = $1, connected = TRUE
-          WHERE player_id = $2 AND room_id = $3`,
-         [socket.id, playerId, room.id]
-       );
-   
-       // Recompute paused state
-       await recomputePause(room.id);
-   
-       // Join socket.io room
-       socket.join(code);
-   
-       // If no current player (new round), pick the first
-       const freshRoomRes = await pool.query(
-         "SELECT * FROM rooms WHERE id = $1",
-         [room.id]
-       );
-       const freshRoom = freshRoomRes.rows[0];
-   
-       if (!freshRoom.current_player_id && !freshRoom.round_over) {
-         await advanceTurn(room.id);
-       }
-   
-       const state = await getState(room.id);
-       io.to(code).emit("stateUpdate", state);
-     } catch (err) {
-       console.error("joinRoom error:", err);
-     }
-   });
-   
-      
+  socket.on("joinRoom", async ({ roomCode, playerId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+
+      const room = roomRes.rows[0];
+
+      // Use player_id instead of id
+      const playerRes = await pool.query(
+        `SELECT * FROM room_players
+         WHERE player_id = $1 AND room_id = $2 AND active = TRUE`,
+        [playerId, room.id]
+      );
+      if (!playerRes.rows.length) return;
+
+      const player = playerRes.rows[0];
+
+      // Update using player_id instead of id
+      await pool.query(
+        `UPDATE room_players
+         SET socket_id = $1, connected = TRUE
+         WHERE player_id = $2 AND room_id = $3`,
+        [socket.id, playerId, room.id]
+      );
+
+      // Recompute paused state
+      await recomputePause(room.id);
+
+      // Join socket.io room
+      socket.join(code);
+
+      // If no current player (new round), pick the first
+      const freshRoomRes = await pool.query(
+        "SELECT * FROM rooms WHERE id = $1",
+        [room.id]
+      );
+      const freshRoom = freshRoomRes.rows[0];
+
+      if (!freshRoom.current_player_id && !freshRoom.round_over) {
+        await advanceTurn(room.id);
+      }
+
+      const state = await getState(room.id);
+      io.to(code).emit("stateUpdate", state);
+    } catch (err) {
+      console.error("joinRoom error:", err);
+    }
+  });
+
   /**
    * Draw card:
    *  - Only allowed if:
@@ -1086,81 +1097,103 @@ io.on("connection", (socket) => {
    *      * It's this player's turn
    *  - On first draw, room.locked is set TRUE (no new players)
    *  - Uses drawCardForPlayer to apply rules
-   *  - Then advances turn (unless bust/stay logic changed it)
+   *  - IMPORTANT CHANGE:
+   *      * DOES NOT auto-advance the turn anymore.
+   *      * If player busts, server auto-advances.
+   *      * Otherwise, player must click Stay or Pass.
    */
   socket.on("drawCard", async ({ roomCode, playerId }) => {
-  try {
-    const code = String(roomCode || "").trim().toUpperCase();
-    const roomRes = await pool.query(
-      "SELECT * FROM rooms WHERE code = $1",
-      [code]
-    );
-    if (!roomRes.rows.length) return;
-    let room = roomRes.rows[0];
-
-    const pid = Number(playerId);
-
-    // FIX: use player_id instead of id
-    const freshPlayers = await pool.query(
-      `SELECT * FROM room_players
-       WHERE room_id = $1 AND player_id = $2`,
-      [room.id, pid]
-    );
-    if (!freshPlayers.rows.length) return;
-
-    const player = freshPlayers.rows[0];
-
-    // Block if paused or round over
-    if (room.paused || room.round_over) return;
-
-    // FIX: compare using player_id
-    if (room.current_player_id !== pid) return;
-
-    // Block if pending action
-    if (room.pending_action_type) return;
-
-    // Lock room on first draw
-    if (!room.locked) {
-      await pool.query(
-        "UPDATE rooms SET locked = TRUE WHERE id = $1",
-        [room.id]
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
       );
-    }
+      if (!roomRes.rows.length) return;
+      let room = roomRes.rows[0];
 
-    // Ensure deck exists
-    await ensureDeck(room.id);
+      const pid = Number(playerId);
 
-    // Perform draw
-    await drawCardForPlayer(room, pid);
-
-    // Reload room (pending action may have changed)
-    const updatedRoomRes = await pool.query(
-      "SELECT * FROM rooms WHERE id = $1",
-      [room.id]
-    );
-    room = updatedRoomRes.rows[0];
-
-    // If no pending action, advance turn unless player stayed
-    if (!room.pending_action_type) {
-      const p2 = await pool.query(
-        `SELECT stayed FROM room_players
-         WHERE room_id = $1 AND player_id = $2`,
+      // Verify player exists and is active
+      const freshPlayers = await pool.query(
+        `SELECT * FROM room_players
+         WHERE room_id = $1 AND player_id = $2 AND active = TRUE`,
         [room.id, pid]
       );
-      const stayed = p2.rows[0].stayed;
+      if (!freshPlayers.rows.length) return;
 
-      if (!stayed) {
-        await advanceTurn(room.id);
+      // Block if paused or round over
+      if (room.paused || room.round_over) return;
+
+      // Enforce turn ownership using player_id
+      if (room.current_player_id !== pid) return;
+
+      // Block if pending action
+      if (room.pending_action_type) return;
+
+      // Lock room on first draw
+      if (!room.locked) {
+        await pool.query(
+          "UPDATE rooms SET locked = TRUE WHERE id = $1",
+          [room.id]
+        );
       }
+
+      // Perform draw (does not advance turn)
+      await drawCardForPlayer(room, pid);
+
+      // Reload room (pending action or bust may have changed)
+      const updatedRoomRes = await pool.query(
+        "SELECT * FROM rooms WHERE id = $1",
+        [room.id]
+      );
+      room = updatedRoomRes.rows[0];
+
+      // After draw:
+      // - If there's a pending action (Freeze/Swap/Take3/SecondChance), do NOT advance.
+      // - If player busted (round_bust = TRUE), auto-advance.
+      // - Otherwise, it's still this player's turn until they Stay or Pass.
+      if (!room.pending_action_type) {
+        const p2 = await pool.query(
+          `SELECT stayed, round_bust FROM room_players
+           WHERE room_id = $1 AND player_id = $2`,
+          [room.id, pid]
+        );
+        const stayed = p2.rows[0].stayed;
+        const busted = p2.rows[0].round_bust;
+
+        if (busted) {
+          // If bust, auto-advance turn
+          await advanceTurn(room.id);
+
+          // Check if all active players have stayed/busted -> end round
+          const allRes = await pool.query(
+            `SELECT stayed, active FROM room_players
+             WHERE room_id = $1`,
+            [room.id]
+          );
+          const allStayed = allRes.rows
+            .filter(p => p.active)
+            .every(p => p.stayed);
+
+          if (allStayed) {
+            await pool.query(
+              "UPDATE rooms SET round_over = TRUE WHERE id = $1",
+              [room.id]
+            );
+          }
+        } else if (!stayed) {
+          // Normal case: not busted, not stayed → player decides Stay or Pass.
+          // No auto-advance here.
+        }
+      }
+
+      const state = await getState(room.id);
+      io.to(code).emit("stateUpdate", state);
+    } catch (err) {
+      console.error("drawCard error:", err);
     }
-
-    const state = await getState(room.id);
-    io.to(code).emit("stateUpdate", state);
-  } catch (err) {
-    console.error("drawCard error:", err);
-  }
-});
-
+  });
 
   /**
    * Stay:
@@ -1169,68 +1202,120 @@ io.on("connection", (socket) => {
    *      * Not paused
    *      * No pending action
    *      * It's their turn
+   *  - Marks stayed = TRUE and advances turn.
+   *  - If all active players have stayed, marks round_over = TRUE.
    */
-socket.on("stay", async ({ roomCode, playerId }) => {
-  try {
-    const code = String(roomCode || "").trim().toUpperCase();
-    const roomRes = await pool.query(
-      "SELECT * FROM rooms WHERE code = $1",
-      [code]
-    );
-    if (!roomRes.rows.length) return;
-    const room = roomRes.rows[0];
+  socket.on("stay", async ({ roomCode, playerId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
 
-    if (room.paused || room.round_over) return;
+      if (room.paused || room.round_over) return;
 
-    const pid = Number(playerId);
+      const pid = Number(playerId);
 
-    // FIX: verify player exists and is active
-    const playerRes = await pool.query(
-      `SELECT * FROM room_players
-       WHERE room_id = $1 AND player_id = $2 AND active = TRUE`,
-      [room.id, pid]
-    );
-    if (!playerRes.rows.length) return;
+      // Verify player exists and is active
+      const playerRes = await pool.query(
+        `SELECT * FROM room_players
+         WHERE room_id = $1 AND player_id = $2 AND active = TRUE`,
+        [room.id, pid]
+      );
+      if (!playerRes.rows.length) return;
 
-    // Enforce turn ownership using player_id
-    if (room.current_player_id !== pid) return;
+      // Enforce turn ownership using player_id
+      if (room.current_player_id !== pid) return;
 
-    if (room.pending_action_type) return;
+      if (room.pending_action_type) return;
 
-    // Mark player as stayed
-    await pool.query(
-      `UPDATE room_players
-       SET stayed = TRUE
-       WHERE player_id = $1 AND room_id = $2`,
-      [pid, room.id]
-    );
-
-    // Check if all active players have stayed
-    const pRes = await pool.query(
-      `SELECT stayed, active FROM room_players
-       WHERE room_id = $1`,
-      [room.id]
-    );
-    const allStayed = pRes.rows
-      .filter(p => p.active)
-      .every(p => p.stayed);
-
-    if (allStayed) {
+      // Mark player as stayed
       await pool.query(
-        "UPDATE rooms SET round_over = TRUE WHERE id = $1",
+        `UPDATE room_players
+         SET stayed = TRUE
+         WHERE player_id = $1 AND room_id = $2`,
+        [pid, room.id]
+      );
+
+      // Check if all active players have stayed
+      const pRes = await pool.query(
+        `SELECT stayed, active FROM room_players
+         WHERE room_id = $1`,
         [room.id]
       );
-    } else {
-      await advanceTurn(room.id);
+      const allStayed = pRes.rows
+        .filter(p => p.active)
+        .every(p => p.stayed);
+
+      if (allStayed) {
+        await pool.query(
+          "UPDATE rooms SET round_over = TRUE WHERE id = $1",
+          [room.id]
+        );
+      } else {
+        await advanceTurn(room.id);
+      }
+
+      const state = await getState(room.id);
+      io.to(code).emit("stateUpdate", state);
+    } catch (err) {
+      console.error("stay error:", err);
     }
+  });
 
-    const state = await getState(room.id);
-    io.to(code).emit("stateUpdate", state);
-  } catch (err) {
-    console.error("stay error:", err);
-  }
-});
+  /**
+   * Pass:
+   *  - Player chooses to end their turn WITHOUT staying.
+   *  - Only allowed if:
+   *      * Not paused
+   *      * Not round_over
+   *      * It's their turn
+   *      * No unresolved pending action belonging to them
+   *  - Does NOT change stayed = TRUE.
+   *  - Simply advances turn to the next player.
+   */
+  socket.on("pass", async ({ roomCode, playerId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
 
+      if (room.paused || room.round_over) return;
+
+      const pid = Number(playerId);
+
+      // Verify player exists and is active
+      const playerRes = await pool.query(
+        `SELECT * FROM room_players
+         WHERE room_id = $1 AND player_id = $2 AND active = TRUE`,
+        [room.id, pid]
+      );
+      if (!playerRes.rows.length) return;
+
+      // Must be their turn
+      if (room.current_player_id !== pid) return;
+
+      // If there's a pending action for this player, they must resolve it first
+      if (room.pending_action_type && room.pending_action_actor_id === pid) {
+        return;
+      }
+
+      // Advance turn
+      await advanceTurn(room.id);
+
+      const state = await getState(room.id);
+      io.to(code).emit("stateUpdate", state);
+    } catch (err) {
+      console.error("pass error:", err);
+    }
+  });
 
   /**
    * End Round:
@@ -1264,58 +1349,56 @@ socket.on("stay", async ({ roomCode, playerId }) => {
    *  - If game is paused due to this player disconnecting, may unpause
    *  - If removed player is current_player → advance turn
    */
-socket.on("removePlayer", async ({ roomCode, name }) => {
-  try {
-    const code = String(roomCode || "").trim().toUpperCase();
-    const roomRes = await pool.query(
-      "SELECT * FROM rooms WHERE code = $1",
-      [code]
-    );
-    if (!roomRes.rows.length) return;
-    const room = roomRes.rows[0];
+  socket.on("removePlayer", async ({ roomCode, name }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
 
-    // Find player by name
-    const pRes = await pool.query(
-      `SELECT * FROM room_players
-       WHERE room_id = $1 AND LOWER(name) = LOWER($2)`,
-      [room.id, name]
-    );
-    if (!pRes.rows.length) return;
+      // Find player by name
+      const pRes = await pool.query(
+        `SELECT * FROM room_players
+         WHERE room_id = $1 AND LOWER(name) = LOWER($2)`,
+        [room.id, name]
+      );
+      if (!pRes.rows.length) return;
 
-    const player = pRes.rows[0];
-    const pid = player.player_id;   // FIX: use per-room player_id
+      const player = pRes.rows[0];
+      const pid = player.player_id;
 
-    // Mark player inactive + stayed
-    await pool.query(
-      `UPDATE room_players
-       SET active = FALSE,
-           stayed = TRUE
-       WHERE room_id = $1 AND player_id = $2`,
-      [room.id, pid]
-    );
+      // Mark player inactive + stayed
+      await pool.query(
+        `UPDATE room_players
+         SET active = FALSE,
+             stayed = TRUE
+         WHERE room_id = $1 AND player_id = $2`,
+        [room.id, pid]
+      );
 
-    // Recompute pause state
-    await recomputePause(room.id);
+      // Recompute pause state
+      await recomputePause(room.id);
 
-    // If removed player was current player, advance turn
-    const freshRoomRes = await pool.query(
-      "SELECT * FROM rooms WHERE id = $1",
-      [room.id]
-    );
-    const freshRoom = freshRoomRes.rows[0];
+      // If removed player was current player, advance turn
+      const freshRoomRes = await pool.query(
+        "SELECT * FROM rooms WHERE id = $1",
+        [room.id]
+      );
+      const freshRoom = freshRoomRes.rows[0];
 
-    // FIX: compare using player_id, not id
-    if (freshRoom.current_player_id === pid && !freshRoom.round_over) {
-      await advanceTurn(room.id);
+      if (freshRoom.current_player_id === pid && !freshRoom.round_over) {
+        await advanceTurn(room.id);
+      }
+
+      const state = await getState(room.id);
+      io.to(code).emit("stateUpdate", state);
+    } catch (err) {
+      console.error("removePlayer error:", err);
     }
-
-    const state = await getState(room.id);
-    io.to(code).emit("stateUpdate", state);
-  } catch (err) {
-    console.error("removePlayer error:", err);
-  }
-});
-
+  });
 
   /**
    * Resolve Second Chance:
@@ -1325,76 +1408,86 @@ socket.on("removePlayer", async ({ roomCode, name }) => {
    *      * Remove one Second Chance from hand
    *      * Add both to discard
    *      * No bust
+   *      * Turn remains, player can Still Stay/Pass
    *  - If not:
    *      * Mark player bust (round_bust = TRUE, stayed = TRUE)
+   *      * Auto-advance turn
    */
-socket.on("resolveSecondChance", async ({ roomCode, playerId, use }) => {
-  try {
-    const code = String(roomCode || "").trim().toUpperCase();
-    const roomRes = await pool.query(
-      "SELECT * FROM rooms WHERE code = $1",
-      [code]
-    );
-    if (!roomRes.rows.length) return;
-    const room = roomRes.rows[0];
-
-    const pid = Number(playerId);
-
-    if (room.paused) return;
-    if (room.pending_action_type !== "SecondChance") return;
-
-    // FIX: compare using player_id
-    if (room.pending_action_actor_id !== pid) return;
-
-    const drawnValue = room.pending_action_value;
-    const roomId = room.id;
-
-    if (use) {
-      // Remove duplicate + Second Chance
-      await removeFromHand(roomId, pid, drawnValue);
-      await removeFromHand(roomId, pid, "Second Chance");
-      await addToDiscard(roomId, drawnValue);
-      await addToDiscard(roomId, "Second Chance");
-    } else {
-      // Bust
-      await pool.query(
-        `UPDATE room_players
-         SET stayed = TRUE, round_bust = TRUE
-         WHERE room_id = $1 AND player_id = $2`,
-        [roomId, pid]
+  socket.on("resolveSecondChance", async ({ roomCode, playerId, use }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
       );
-    }
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
 
-    // Clear pending action
-    await pool.query(
-      `UPDATE rooms
-       SET pending_action_type = NULL,
-           pending_action_actor_id = NULL,
-           pending_action_value = NULL
-       WHERE id = $1`,
-      [roomId]
-    );
+      const pid = Number(playerId);
 
-    // If they used Second Chance, advance turn if they didn't stay
-    if (use) {
-      const pRes = await pool.query(
-        `SELECT stayed FROM room_players
-         WHERE room_id = $1 AND player_id = $2`,
-        [roomId, pid]
-      );
+      if (room.paused) return;
+      if (room.pending_action_type !== "SecondChance") return;
 
-      if (!pRes.rows[0].stayed && !room.round_over) {
-        await advanceTurn(roomId);
+      if (room.pending_action_actor_id !== pid) return;
+
+      const drawnValue = room.pending_action_value;
+      const roomId = room.id;
+
+      if (use) {
+        // Remove duplicate + Second Chance
+        await removeFromHand(roomId, pid, drawnValue);
+        await removeFromHand(roomId, pid, "Second Chance");
+        await addToDiscard(roomId, drawnValue);
+        await addToDiscard(roomId, "Second Chance");
+      } else {
+        // Bust
+        await pool.query(
+          `UPDATE room_players
+           SET stayed = TRUE, round_bust = TRUE
+           WHERE room_id = $1 AND player_id = $2`,
+          [roomId, pid]
+        );
       }
+
+      // Clear pending action
+      await pool.query(
+        `UPDATE rooms
+         SET pending_action_type = NULL,
+             pending_action_actor_id = NULL,
+             pending_action_value = NULL
+         WHERE id = $1`,
+        [roomId]
+      );
+
+      // If they chose NOT to use Second Chance and busted, advance turn
+      if (!use) {
+        await advanceTurn(roomId);
+
+        // Check if all active players have stayed/busted -> end round
+        const allRes = await pool.query(
+          `SELECT stayed, active FROM room_players
+           WHERE room_id = $1`,
+          [roomId]
+        );
+        const allStayed = allRes.rows
+          .filter(p => p.active)
+          .every(p => p.stayed);
+
+        if (allStayed) {
+          await pool.query(
+            "UPDATE rooms SET round_over = TRUE WHERE id = $1",
+            [roomId]
+          );
+        }
+      }
+      // If they used Second Chance, they remain current_player, and may Stay or Pass.
+
+      const state = await getState(roomId);
+      io.to(code).emit("stateUpdate", state);
+    } catch (err) {
+      console.error("resolveSecondChance error:", err);
     }
-
-    const state = await getState(roomId);
-    io.to(code).emit("stateUpdate", state);
-  } catch (err) {
-    console.error("resolveSecondChance error:", err);
-  }
-});
-
+  });
 
   /**
    * Resolve action target:
@@ -1407,133 +1500,125 @@ socket.on("resolveSecondChance", async ({ roomCode, playerId, use }) => {
    *  - When resolving:
    *      * Freeze: target.stayed = TRUE
    *      * Swap: swap full hands (actor <-> target)
-   *      * Take3: target draws 3 cards (forced)
+   *      * Take3: target draws 3 cards (forced, target can be self)
    *  - Action card then moves to discard
+   *  - After resolving, it's still actor's turn — they then choose Stay or Pass.
    */
-socket.on("actionTarget", async ({ roomCode, playerId, action, targetId }) => {
-  try {
-    const code = String(roomCode || "").trim().toUpperCase();
-    const roomRes = await pool.query(
-      "SELECT * FROM rooms WHERE code = $1",
-      [code]
-    );
-    if (!roomRes.rows.length) return;
-    const room = roomRes.rows[0];
-    const roomId = room.id;
+  socket.on("actionTarget", async ({ roomCode, playerId, action, targetId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
+      const roomId = room.id;
 
-    const pid = Number(playerId);
-    const tid = Number(targetId);
+      const pid = Number(playerId);
+      const tid = Number(targetId);
 
-    if (room.paused) return;
-    if (!room.pending_action_type) return;
+      if (room.paused) return;
+      if (!room.pending_action_type) return;
 
-    // FIX: compare using player_id
-    if (room.pending_action_actor_id !== pid) return;
+      if (room.pending_action_actor_id !== pid) return;
 
-    const actionType = room.pending_action_type;
+      const actionType = room.pending_action_type;
 
-    // FIX: validate target using player_id
-    const targetRes = await pool.query(
-      `SELECT * FROM room_players
-       WHERE room_id = $1 AND player_id = $2`,
-      [roomId, tid]
-    );
-    if (!targetRes.rows.length) return;
-
-    // Freeze
-    if (actionType === "Freeze") {
-      await pool.query(
-        `UPDATE room_players
-         SET stayed = TRUE
+      // Validate target using player_id
+      const targetRes = await pool.query(
+        `SELECT * FROM room_players
          WHERE room_id = $1 AND player_id = $2`,
         [roomId, tid]
       );
-    }
+      if (!targetRes.rows.length) return;
 
-    // Swap
-    if (actionType === "Swap") {
-      const handsRes = await pool.query(
-        `SELECT player_id, value
-         FROM player_hands
-         WHERE room_id = $1 AND player_id IN ($2, $3)
-         ORDER BY position`,
-        [roomId, pid, tid]
-      );
-
-      const actorCards = handsRes.rows.filter(h => h.player_id === pid);
-      const targetCards = handsRes.rows.filter(h => h.player_id === tid);
-
-      await pool.query(
-        `DELETE FROM player_hands
-         WHERE room_id = $1 AND player_id IN ($2, $3)`,
-        [roomId, pid, tid]
-      );
-
-      for (const c of targetCards) {
-        await addToHand(roomId, pid, c.value);
-      }
-      for (const c of actorCards) {
-        await addToHand(roomId, tid, c.value);
-      }
-    }
-
-    // Take3
-    if (actionType === "Take3") {
-      for (let i = 0; i < 3; i++) {
-        const updatedRoomRes = await pool.query(
-          "SELECT * FROM rooms WHERE id = $1",
-          [roomId]
+      // Freeze
+      if (actionType === "Freeze") {
+        await pool.query(
+          `UPDATE room_players
+           SET stayed = TRUE
+           WHERE room_id = $1 AND player_id = $2`,
+          [roomId, tid]
         );
-        const r = updatedRoomRes.rows[0];
-        await drawCardForPlayer(r, tid);
       }
+
+      // Swap
+      if (actionType === "Swap") {
+        const handsRes = await pool.query(
+          `SELECT player_id, value
+           FROM player_hands
+           WHERE room_id = $1 AND player_id IN ($2, $3)
+           ORDER BY position`,
+          [roomId, pid, tid]
+        );
+
+        const actorCards = handsRes.rows.filter(h => h.player_id === pid);
+        const targetCards = handsRes.rows.filter(h => h.player_id === tid);
+
+        await pool.query(
+          `DELETE FROM player_hands
+           WHERE room_id = $1 AND player_id IN ($2, $3)`,
+          [roomId, pid, tid]
+        );
+
+        for (const c of targetCards) {
+          await addToHand(roomId, pid, c.value);
+        }
+        for (const c of actorCards) {
+          await addToHand(roomId, tid, c.value);
+        }
+      }
+
+      // Take3 (target can be self or others)
+      if (actionType === "Take3") {
+        for (let i = 0; i < 3; i++) {
+          const updatedRoomRes = await pool.query(
+            "SELECT * FROM rooms WHERE id = $1",
+            [roomId]
+          );
+          const r = updatedRoomRes.rows[0];
+          await drawCardForPlayer(r, tid);
+        }
+      }
+
+      // Remove action card from actor
+      let cardValueToDiscard = null;
+      if (actionType === "Freeze") cardValueToDiscard = "Freeze";
+      if (actionType === "Swap") cardValueToDiscard = "Swap";
+      if (actionType === "Take3") cardValueToDiscard = "Take 3";
+
+      if (cardValueToDiscard) {
+        await removeFromHand(roomId, pid, cardValueToDiscard);
+        await addToDiscard(roomId, cardValueToDiscard);
+      }
+
+      // Clear pending action
+      await pool.query(
+        `UPDATE rooms
+         SET pending_action_type = NULL,
+             pending_action_actor_id = NULL,
+             pending_action_value = NULL
+         WHERE id = $1`,
+        [roomId]
+      );
+
+      // AFTER RESOLVING ACTION:
+      // Do NOT advance turn automatically.
+      // Actor remains current_player and can now choose Stay or Pass.
+
+      const state = await getState(roomId);
+      io.to(code).emit("stateUpdate", state);
+    } catch (err) {
+      console.error("actionTarget error:", err);
     }
-
-    // Remove action card from actor
-    let cardValueToDiscard = null;
-    if (actionType === "Freeze") cardValueToDiscard = "Freeze";
-    if (actionType === "Swap") cardValueToDiscard = "Swap";
-    if (actionType === "Take3") cardValueToDiscard = "Take 3";
-
-    if (cardValueToDiscard) {
-      await removeFromHand(roomId, pid, cardValueToDiscard);
-      await addToDiscard(roomId, cardValueToDiscard);
-    }
-
-    // Clear pending action
-    await pool.query(
-      `UPDATE rooms
-       SET pending_action_type = NULL,
-           pending_action_actor_id = NULL,
-           pending_action_value = NULL
-       WHERE id = $1`,
-      [roomId]
-    );
-
-    // Advance turn
-    const freshRoomRes = await pool.query(
-      "SELECT * FROM rooms WHERE id = $1",
-      [roomId]
-    );
-    const freshRoom = freshRoomRes.rows[0];
-
-    if (!freshRoom.round_over) {
-      await advanceTurn(roomId);
-    }
-
-    const state = await getState(roomId);
-    io.to(code).emit("stateUpdate", state);
-  } catch (err) {
-    console.error("actionTarget error:", err);
-  }
-});
-
+  });
 
   /**
    * Socket disconnect:
    *  - Find which player this socket belonged to
    *  - Mark connected = FALSE
-   *  - Recompute pause (Option B: ANY disconnected → paused = TRUE)
+   *  - Recompute pause (ANY disconnected → paused = TRUE)
    */
   socket.on("disconnect", async () => {
     try {
@@ -1585,11 +1670,3 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Flip‑to‑6 server running on port " + PORT);
 });
-
-
-
-
-
-
-
-

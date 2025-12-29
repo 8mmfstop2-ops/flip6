@@ -985,36 +985,37 @@ function detectSoundAndAnimationEvents(state) {
     playSound("bust");
   }
 
-  // 3) Detect cards newly added to hands (draw events)
-  if ((state.hands || []).length > (lastState.hands || []).length) {
-    // Newly added hand entries
-    const prevCount = lastState.hands.length;
-    const newEntries = state.hands.slice(prevCount);
+// 3) Detect cards newly added to hands (draw events)
+if ((state.hands || []).length > (lastState.hands || []).length) {
+  const prevCount = lastState.hands.length;
+  const newEntries = state.hands.slice(prevCount);
 
-    newEntries.forEach(h => {
-      const newCard = h.value;
-      const playerIdOfCard = h.player_id;
+  newEntries.forEach(h => {
+    const newCard = h.value;
 
-      // Map playerId → seatIndex
-      const seatIndex = state.players.findIndex(p => p.id === playerIdOfCard);
-      if (seatIndex >= 0 && seatIndex < seatIds.length) {
-        // Animate the card flying from deck → seat
-        animateCardToSeat(newCard, seatIndex);
-      }
+    // FIX: support both player_id and playerId
+    const playerIdOfCard = h.player_id ?? h.playerId;
 
-      // Sound logic for the drawn card
-      if (newCard === "Second Chance") {
-        playSound("secondChance");
-      } else if (newCard === "6-") {
-        playSound("sixMinus");
-      } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
-        // Normalize "Take3" vs "Take 3"
-        playSound("action");
-      } else {
-        playSound("draw");
-      }
-    });
-  }
+    // Map playerId → seatIndex
+    const seatIndex = state.players.findIndex(p => p.id === playerIdOfCard);
+    if (seatIndex >= 0 && seatIndex < seatIds.length) {
+      animateCardToSeat(newCard, seatIndex);
+    }
+
+    // Sound logic
+    if (newCard === "Second Chance") {
+      playSound("secondChance");
+    } else if (newCard === "6-") {
+      playSound("sixMinus");
+    } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
+      playSound("action");
+    } else {
+      playSound("draw");
+    }
+  });
+}
+   
+  
 
   lastState = state;
 }
@@ -1128,6 +1129,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

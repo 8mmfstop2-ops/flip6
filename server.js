@@ -1176,15 +1176,20 @@ io.on("connection", (socket) => {
       const room = roomRes.rows[0];
 
       if (room.paused || room.round_over) return;
-      if (room.current_player_id !== playerId) return;
+      
+      const pid = Number(playerId);
+      
+      // Enforce turn ownership using player_id (NOT id)
+      if (room.current_player_id !== pid) return;
+      
       if (room.pending_action_type) return;
-
-      // Mark player as stayed
+      
+      // Mark player as stayed using player_id (NOT id)
       await pool.query(
         `UPDATE room_players
          SET stayed = TRUE
-         WHERE id = $1 AND room_id = $2`,
-        [playerId, room.id]
+         WHERE player_id = $1 AND room_id = $2`,
+        [pid, room.id]
       );
 
       // Check if all active players have stayed
@@ -1561,6 +1566,7 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Flip‑to‑6 server running on port " + PORT);
 });
+
 
 
 

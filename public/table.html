@@ -309,7 +309,22 @@ td.discard-cell {
         <input id="volume-slider" type="range" min="0" max="100" value="90">
       </label>
     </div>
-  </div>
+
+   <!-- Test Sounds Popup Button -->
+   <div class="controls-audio" style="margin-top:10px;">
+     <button id="test-sounds-btn">Test Sounds</button>
+   </div>
+
+   <!-- Volume Preview Meter -->
+   <div id="volume-meter-container" 
+        style="width:120px; height:12px; background:#555; border-radius:6px; margin:8px auto;">
+     <div id="volume-meter-bar" 
+          style="height:100%; width:90%; background:#1ff233; border-radius:6px; transition:width 0.1s linear;">
+     </div>
+   </div>
+     
+     
+  </div>  
 </details>
 
 <!-- ============================================================
@@ -449,6 +464,31 @@ td.discard-cell {
   </div>
 </details>
 
+<!-- Sound Test Popup -->
+<div id="sound-popup" 
+     style="display:none; position:fixed; top:50%; left:50%; 
+            transform:translate(-50%, -50%); background:#222; 
+            padding:20px; border-radius:10px; z-index:99999; 
+            width:300px; text-align:left; border:2px solid #fff;">
+  
+  <h3 style="margin-top:0;">Test Sounds</h3>
+
+  <ul id="sound-list" style="list-style:none; padding:0; margin:0;">
+    <li class="sound-item" data-sound="draw" style="padding:6px; cursor:pointer;">draw.mp3</li>
+    <li class="sound-item" data-sound="shuffle" style="padding:6px; cursor:pointer;">suffle.mp3</li>
+    <li class="sound-item" data-sound="bust" style="padding:6px; cursor:pointer;">bust.mp3</li>
+    <li class="sound-item" data-sound="secondChance" style="padding:6px; cursor:pointer;">secondChance.mp3</li>
+    <li class="sound-item" data-sound="sixMinus" style="padding:6px; cursor:pointer;">6-.mp3</li>
+    <li class="sound-item" data-sound="action" style="padding:6px; cursor:pointer;">action.mp3</li>
+  </ul>
+
+  <button id="close-sound-popup" 
+          style="margin-top:15px; width:100%; padding:8px;">Close</button>
+</div>
+
+
+
+   
 <!-- ============================================================
      SOCKET.IO + GAME LOGIC
 ============================================================ -->
@@ -482,6 +522,12 @@ const pauseOverlay = document.getElementById("pause-overlay");
 const muteToggleBtn = document.getElementById("mute-toggle");
 const volumeSlider = document.getElementById("volume-slider");
 
+
+// Disable discard pile completely
+discardPileDiv.style.pointerEvents = "none";
+discardPileDiv.style.cursor = "not-allowed";
+
+
 /* ============================================================
    SEAT MAPPING (order_index → seat cell)
 ============================================================ */
@@ -503,6 +549,7 @@ const sounds = {
 // Global audio state
 let isMuted = false;
 let volumeLevel = 0.9; // 0.0–1.0
+  
 
 // Initialize audio objects
 Object.values(sounds).forEach(s => {
@@ -522,17 +569,25 @@ function playSound(name) {
   s.play().catch(() => {});
 }
 
-// Mute button logic
-muteToggleBtn.addEventListener("click", () => {
-  isMuted = !isMuted;
-  muteToggleBtn.textContent = isMuted ? "Unmute" : "Mute";
-});
-
 // Volume slider logic (0–100 → 0.0–1.0)
 volumeSlider.addEventListener("input", () => {
   const val = parseInt(volumeSlider.value, 10);
   volumeLevel = Math.max(0, Math.min(100, val)) / 100;
+
+  // Update meter bar width
+  const meterBar = document.getElementById("volume-meter-bar");
+  meterBar.style.width = (volumeLevel * 100) + "%";
 });
+
+muteToggleBtn.addEventListener("click", () => {
+  isMuted = !isMuted;
+  muteToggleBtn.textContent = isMuted ? "Unmute" : "Mute";
+
+  // Update meter to show 0 when muted
+  const meterBar = document.getElementById("volume-meter-bar");
+  meterBar.style.width = isMuted ? "0%" : (volumeLevel * 100) + "%";
+});
+   
 
 /* ============================================================
    CARD METADATA (value → filename)
@@ -988,21 +1043,34 @@ socket.on("connect", async () => {
    UI EVENTS
 ============================================================ */
 deckDiv.addEventListener("click", () => {
-  // Only the active player, unpaused, no pending action, and round not over can draw
+  if (!currentState) return;
+
+  const deckNotStarted = currentState.deckCount === 0;
+
   const isMyTurn =
-    currentState &&
     currentState.currentPlayerId === playerId &&
     !currentState.roundOver &&
     !currentState.paused &&
-    !currentState.pendingActionType &&
-    currentState.deckCount > 0;
+    !currentState.pendingActionType;
 
-  if (!isMyTurn) return;
+  // Allow first click to initialize deck
+  if (!isMyTurn && !deckNotStarted) return;
 
   socket.emit("drawCard", { roomCode, playerId });
 });
 
+   
 stayButton.addEventListener("click", () => {
+  if (!currentState) return;
+
+  const isMyTurn =
+    currentState.currentPlayerId === playerId &&
+    !currentState.roundOver &&
+    !currentState.paused &&
+    !currentState.pendingActionType;
+
+  if (!isMyTurn) return;
+
   socket.emit("stay", { roomCode, playerId });
 });
 
@@ -1010,6 +1078,31 @@ endTurnsButton.addEventListener("click", () => {
   socket.emit("endRound", { roomCode });
 });
 
+// Test Sounds Popup Logic
+const testSoundsBtn = document.getElementById("test-sounds-btn");
+const soundPopup = document.getElementById("sound-popup");
+const closeSoundPopup = document.getElementById("close-sound-popup");
+
+testSoundsBtn.addEventListener("click", () => {
+  soundPopup.style.display = "block";
+});
+
+closeSoundPopup.addEventListener("click", () => {
+  soundPopup.style.display = "none";
+});
+
+// Play sound when clicking a sound name
+document.querySelectorAll(".sound-item").forEach(item => {
+  item.addEventListener("click", () => {
+    const soundName = item.getAttribute("data-sound");
+    playSound(soundName);
+  });
+});
+
+
+
+
+   
 removeBtn.addEventListener("click", () => {
   const name = removeNameInput.value.trim();
   if (!name) return;
@@ -1026,3 +1119,4 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+

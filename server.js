@@ -1099,4 +1099,24 @@ socket.on("joinRoom", async ({ roomCode, playerId }) => {
   }
 });
 
-      
+
+socket.on("disconnect", async () => {
+  try {
+    await pool.query(
+      `UPDATE room_players
+       SET connected = FALSE, socket_id = NULL
+       WHERE socket_id = $1`,
+      [socket.id]
+    );
+  } catch (err) {
+    console.error("disconnect cleanup error:", err);
+  }
+});
+
+
+socket.on("joinError", (data) => {
+  alert(data.message);
+  window.location.href = "/"; // or your lobby page
+});
+
+

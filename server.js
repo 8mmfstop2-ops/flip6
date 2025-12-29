@@ -457,18 +457,29 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Load active players in turn order
+  // Load active, not-stayed players in turn order
   const playersRes = await pool.query(
-    `SELECT id
+    `SELECT id, stayed, round_bust
      FROM room_players
      WHERE room_id = $1 AND active = TRUE
      ORDER BY order_index ASC`,
     [roomId]
   );
 
-  const players = playersRes.rows.map(p => p.id);
+  const candidates = playersRes.rows.filter(p => !p.stayed && !p.round_bust);
+  const players = candidates.map(p => p.id);
 
-  if (players.length === 0) return;
+  // If no candidates left, mark round over and stop
+  if (players.length === 0) {
+    await pool.query(
+      `UPDATE rooms
+       SET round_over = TRUE,
+           current_player_id = NULL
+       WHERE id = $1`,
+      [roomId]
+    );
+    return;
+  }
 
   // If no current player, start with first
   if (!room.current_player_id) {
@@ -479,11 +490,11 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Find current player index
-  const idx = players.indexOf(room.current_player_id);
+  // Find current player index in the full active list
+  const currentIdx = players.indexOf(room.current_player_id);
 
-  // If not found, reset to first
-  if (idx === -1) {
+  // If current player not eligible or not found, reset to first
+  if (currentIdx === -1) {
     await pool.query(
       `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
       [players[0], roomId]
@@ -491,14 +502,15 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Rotate to next player
-  const nextIndex = (idx + 1) % players.length;
+  // Rotate to next eligible player
+  const nextIndex = (currentIdx + 1) % players.length;
 
   await pool.query(
     `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
     [players[nextIndex], roomId]
   );
 }
+
 
 
 /**
@@ -541,32 +553,39 @@ async function computeScore(roomId, playerId) {
 }
 
 
-   async function getNextStartingPlayer(roomId, lastStarterId) {
-     // Load active players in seat order
-     const playersRes = await pool.query(
-       `SELECT player_id
-        FROM room_players
-        WHERE room_id = $1 AND active = TRUE
-        ORDER BY order_index ASC`,
-       [roomId]
-     );
-   
-     const players = playersRes.rows.map(r => r.player_id);
-   
-     if (players.length === 0) return null;
-   
-     // If no last starter, default to first player
-     if (!lastStarterId) return players[0];
-   
-     const index = players.indexOf(lastStarterId);
-   
-     // If last starter not found, default to first
-     if (index === -1) return players[0];
-   
-     // Rotate to next player
-     const nextIndex = (index + 1) % players.length;
-     return players[nextIndex];
-   }
+async function getNextStartingPlayer(roomId) {
+  // Load room to get the last starter (current_player_id from the round that just ended)
+  const roomRes = await pool.query(
+    `SELECT current_player_id FROM rooms WHERE id = $1`,
+    [roomId]
+  );
+  const lastStarterId = roomRes.rows[0]?.current_player_id || null;
+
+  // Load active players in seat/turn order
+  const playersRes = await pool.query(
+    `SELECT id
+     FROM room_players
+     WHERE room_id = $1 AND active = TRUE
+     ORDER BY order_index ASC`,
+    [roomId]
+  );
+
+  const players = playersRes.rows.map(r => r.id);
+
+  if (players.length === 0) return null;
+
+  // If no last starter, default to first player
+  if (!lastStarterId) return players[0];
+
+  const index = players.indexOf(lastStarterId);
+
+  // If last starter not found (e.g. removed), default to first
+  if (index === -1) return players[0];
+
+  // Rotate to next player
+  const nextIndex = (index + 1) % players.length;
+  return players[nextIndex];
+}
 
 
 
@@ -973,18 +992,30 @@ app.post("/api/player/join", async (req, res) => {
 
     let playerId;
 
-    if (dupRes.rows.length > 0) {
-      // Name exists but player is disconnected → RECONNECT
-      playerId = dupRes.rows[0].player_id;
-    } else {
-      // Create new player
-      const insertRes = await pool.query(
-        `INSERT INTO room_players (room_id, name, active, connected)
-         VALUES ($1, $2, TRUE, FALSE)
-         RETURNING player_id`,
-        [room.id, cleanName]
-      );
-      playerId = insertRes.rows[0].player_id;
+         // Create new player
+         const insertRes = await pool.query(
+           `
+           INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
+           VALUES (
+             $1,
+             COALESCE(
+               (SELECT MAX(player_id) + 1 FROM room_players WHERE room_id = $1),
+               1
+             ),
+             $2,
+             COALESCE(
+               (SELECT MAX(order_index) + 1 FROM room_players WHERE room_id = $1),
+               0
+             ),
+             TRUE,
+             FALSE
+           )
+           RETURNING player_id
+           `,
+           [room.id, cleanName]
+         );
+         playerId = insertRes.rows[0].player_id;
+
     }
 
     // Redirect to game table
@@ -1127,4 +1158,5 @@ io.on("connection", (socket) => {
   });
 
 });  
+
 

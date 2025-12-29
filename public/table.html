@@ -115,7 +115,7 @@ table.playing-table {
   height: 100px;
   border-radius: 6px;
   border: 3px solid #000;
-  z-index: 5; /* ensures image covers label */
+  z-index: 5;
 }
 
 /* ============================================================
@@ -139,7 +139,6 @@ table.playing-table {
   top: 0;
   left: 0;
 }
-/* Placeholder deck before first draw */
 #deck.placeholder::before {
   content: "Click to Start";
   display: flex;
@@ -178,21 +177,25 @@ td.discard-cell {
 }
 
 /* ============================================================
-   BUTTONS
+   BUTTONS (Stay + Pass)
 ============================================================ */
 .stay-button {
   background-color: #3f3f4f;
   color: #fff;
   font-size: 1.1em;
   font-weight: bold;
-  padding: 22px 22px;
+  padding: 18px 22px;
   border: none;
   border-radius: 8px;
   cursor: pointer;
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
 }
 .stay-button:hover {
   background-color: #1ff233;
 }
+
 .end-turns-button {
   background-color: #6D1AA1;
   color: #fff;
@@ -214,7 +217,9 @@ td.discard-cell {
   opacity: 0.6;
 }
 
-/* Mute / volume controls */
+/* ============================================================
+   AUDIO CONTROLS
+============================================================ */
 .controls-audio {
   margin-top: 8px;
   display: flex;
@@ -225,18 +230,15 @@ td.discard-cell {
 .controls-audio label {
   font-size: 0.9em;
 }
-
 #volume-slider {
-  accent-color: #1ff233; /* bright green */
+  accent-color: #1ff233;
 }
-
 .sound-item.selected {
   background: #1ff233;
   color: #000;
   border-radius: 6px;
 }
 
-   
 /* ============================================================
    PLAYER HIGHLIGHTING
 ============================================================ */
@@ -282,7 +284,7 @@ td.discard-cell {
 }
 
 /* ============================================================
-   FLYING CARD ANIMATION (deck → seat)
+   FLYING CARD ANIMATION
 ============================================================ */
 .flying-card {
   position: fixed;
@@ -313,19 +315,15 @@ td.discard-cell {
     <input id="removeName" placeholder="Player name to remove" style="margin-right:8px;">
     <button id="removeBtn">Remove Player</button>
 
-    <!-- Audio controls: mute + volume -->
-   <div class="controls-audio" style="gap:15px;">
-     <button id="mute-toggle">Mute</button>
-   
-     <label>
-       Volume:
-       <input id="volume-slider" type="range" min="0" max="100" value="90">
-     </label>
-   
-     <button id="test-sounds-btn">Test Sounds</button>
-   </div>
-
-  </div>  
+    <div class="controls-audio" style="gap:15px;">
+      <button id="mute-toggle">Mute</button>
+      <label>
+        Volume:
+        <input id="volume-slider" type="range" min="0" max="100" value="90">
+      </label>
+      <button id="test-sounds-btn">Test Sounds</button>
+    </div>
+  </div>
 </details>
 
 <!-- ============================================================
@@ -344,7 +342,6 @@ td.discard-cell {
 
         <!-- ROW 1 — Seats 1 & 2 + Discard -->
         <tr>
-          <!-- Seat 1 (top row, left) -->
           <td id="seat1">
             <div class="player-name">Seat 1</div>
             <div class="card-row">
@@ -357,14 +354,12 @@ td.discard-cell {
             </div>
           </td>
 
-          <!-- Discard pile + End Round -->
           <td class="discard-cell">
             <button id="end-turns" class="end-turns-button" disabled>End Round</button>
             <div id="discard-pile" class="deck empty"></div>
             <div id="discard-count">Discarded: 0</div>
           </td>
 
-          <!-- Seat 2 (top row, right) -->
           <td id="seat2">
             <div class="player-name">Seat 2</div>
             <div class="card-row">
@@ -377,10 +372,8 @@ td.discard-cell {
             </div>
           </td>
         </tr>
-
         <!-- ROW 2 — Seats 3 & 4 + Deck -->
         <tr>
-          <!-- Seat 3 (middle row, left) -->
           <td id="seat3">
             <div class="player-name">Seat 3</div>
             <div class="card-row">
@@ -400,7 +393,6 @@ td.discard-cell {
             <div id="deck-count">0 cards</div>
           </td>
 
-          <!-- Seat 4 (middle row, right) -->
           <td id="seat4">
             <div class="player-name">Seat 4</div>
             <div class="card-row">
@@ -414,9 +406,8 @@ td.discard-cell {
           </td>
         </tr>
 
-        <!-- ROW 3 — Seats 5 & 6 + Stay Button -->
+        <!-- ROW 3 — Seats 5 & 6 + Stay/Pass Buttons -->
         <tr>
-          <!-- Seat 5 (bottom row, left) -->
           <td id="seat5">
             <div class="player-name">Seat 5</div>
             <div class="card-row">
@@ -429,12 +420,12 @@ td.discard-cell {
             </div>
           </td>
 
-          <!-- Stay button -->
+          <!-- Stay + Pass buttons (vertical layout) -->
           <td class="stay-cell">
             <button id="stay-button" class="stay-button">🪬 Stay</button>
+            <button id="pass-button" class="stay-button">⏭️ Pass</button>
           </td>
 
-          <!-- Seat 6 (bottom row, right) -->
           <td id="seat6">
             <div class="player-name">Seat 6</div>
             <div class="card-row">
@@ -487,9 +478,6 @@ td.discard-cell {
           style="margin-top:15px; width:100%; padding:8px;">Close</button>
 </div>
 
-
-
-   
 <!-- ============================================================
      SOCKET.IO + GAME LOGIC
 ============================================================ -->
@@ -516,6 +504,7 @@ const discardPileDiv = document.getElementById("discard-pile");
 const discardCountDiv = document.getElementById("discard-count");
 const deckCountDiv = document.getElementById("deck-count");
 const stayButton = document.getElementById("stay-button");
+const passButton = document.getElementById("pass-button");
 const endTurnsButton = document.getElementById("end-turns");
 const removeNameInput = document.getElementById("removeName");
 const removeBtn = document.getElementById("removeBtn");
@@ -523,23 +512,20 @@ const pauseOverlay = document.getElementById("pause-overlay");
 const muteToggleBtn = document.getElementById("mute-toggle");
 const volumeSlider = document.getElementById("volume-slider");
 
-
 // Disable discard pile completely
 discardPileDiv.style.pointerEvents = "none";
 discardPileDiv.style.cursor = "not-allowed";
 
 let controlsClosedOnce = false;
 
-
 /* ============================================================
-   SEAT MAPPING (order_index → seat cell)
+   SEAT MAPPING
 ============================================================ */
 const seatIds = ["seat1", "seat2", "seat3", "seat4", "seat5", "seat6"];
 
 /* ============================================================
    AUDIO SYSTEM
 ============================================================ */
-// Load all sounds
 const sounds = {
   draw: new Audio("/sounds/draw.mp3"),
   shuffle: new Audio("/sounds/shuffle.mp3"),
@@ -549,30 +535,24 @@ const sounds = {
   action: new Audio("/sounds/action.mp3")
 };
 
-// Global audio state
 let isMuted = false;
-let volumeLevel = 0.9; // 0.0–1.0
-  
+let volumeLevel = 0.9;
 
-// Initialize audio objects
 Object.values(sounds).forEach(s => {
   s.preload = "auto";
   s.volume = volumeLevel;
 });
 
-// Helper: play a sound (all clients, no per-player restriction)
 function playSound(name) {
   if (isMuted) return;
   const original = sounds[name];
   if (!original) return;
 
-  // Clone so overlapping sounds do not cut each other off
   const s = original.cloneNode();
   s.volume = volumeLevel;
   s.play().catch(() => {});
 }
 
-// Volume slider logic (0–100 → 0.0–1.0)
 volumeSlider.addEventListener("input", () => {
   const val = parseInt(volumeSlider.value, 10);
   volumeLevel = Math.max(0, Math.min(100, val)) / 100;
@@ -581,10 +561,7 @@ volumeSlider.addEventListener("input", () => {
 muteToggleBtn.addEventListener("click", () => {
   isMuted = !isMuted;
   muteToggleBtn.textContent = isMuted ? "Unmute" : "Mute";
-
 });
-   
-
 /* ============================================================
    CARD METADATA (value → filename)
 ============================================================ */
@@ -630,22 +607,12 @@ function computeRoundScore(values) {
 /* ============================================================
    GLOBAL STATE REFERENCES
 ============================================================ */
-let currentState = null; // used for local checks
-let lastState = null;    // used to detect changes (draws, busts, etc.)
+let currentState = null;
+let lastState = null;
 
 /* ============================================================
    FLICK / ARC ANIMATION HELPERS
 ============================================================ */
-/**
- * Determine flick direction + vertical arc based on seat index
- * seatIndex: 0..5 → seat1..seat6
- *
- * Left seats (1,3,5) → flick left
- * Right seats (2,4,6) → flick right
- * Row 1 (seats 1,2) → arc up
- * Row 2 (seats 3,4) → straight
- * Row 3 (seats 5,6) → arc down
- */
 function getFlickAnimationForSeat(seatIndex) {
   const isLeft = (seatIndex === 0 || seatIndex === 2 || seatIndex === 4);
   const isTop = (seatIndex === 0 || seatIndex === 1);
@@ -654,30 +621,23 @@ function getFlickAnimationForSeat(seatIndex) {
   const direction = isLeft ? "left" : "right";
 
   let arcY = 0;
-  if (isTop) arcY = -40;      // arc upward
-  else if (isBottom) arcY = 40; // arc downward
+  if (isTop) arcY = -40;
+  else if (isBottom) arcY = 40;
 
   return { direction, arcY };
 }
 
-/**
- * Animate a card flying from the deck to a given seat
- * value: card value string
- * seatIndex: 0..5
- */
 function animateCardToSeat(value, seatIndex) {
   const deckRect = deckDiv.getBoundingClientRect();
   const seatId = seatIds[seatIndex];
   const seatCell = document.getElementById(seatId);
   if (!seatCell) return;
 
-  // Target: roughly the center of the second row of cards for that seat
   const targetRow = seatCell.querySelector(".second-row") || seatCell;
   const targetRect = targetRow.getBoundingClientRect();
 
   const imgSrc = getCardImgSrc(value);
 
-  // Create a flying card element positioned at deck
   const flying = document.createElement("img");
   flying.src = imgSrc;
   flying.className = "flying-card";
@@ -688,25 +648,21 @@ function animateCardToSeat(value, seatIndex) {
 
   document.body.appendChild(flying);
 
-  // Compute delta movement
   const dx = (targetRect.left + targetRect.width / 2) - (deckRect.left + deckRect.width / 2);
   const dy = (targetRect.top + targetRect.height / 2) - (deckRect.top + deckRect.height / 2);
 
   const { direction, arcY } = getFlickAnimationForSeat(seatIndex);
 
-  // Apply transform after small delay so CSS transition kicks in
   requestAnimationFrame(() => {
     let translateX = dx;
     let translateY = dy + arcY;
 
-    // Add side flick & rotate
     const rotateDeg = direction === "left" ? -20 : 20;
 
     flying.style.transform = `translate(${translateX}px, ${translateY}px) rotate(${rotateDeg}deg)`;
     flying.style.opacity = "0";
   });
 
-  // Remove flying card after animation
   setTimeout(() => {
     if (flying && flying.parentNode) {
       flying.parentNode.removeChild(flying);
@@ -720,50 +676,44 @@ function animateCardToSeat(value, seatIndex) {
 function renderDeck(state) {
   deckDiv.innerHTML = "";
 
-  // No deck yet (before first shuffle / start)
   if (state.deckCount === 0) {
     deckDiv.classList.add("placeholder");
     deckCountDiv.textContent = "0 cards";
     return;
   }
 
-   // AUTO‑CLOSE CONTROLS ACCORDION ON FIRST DECK CREATION
-   if (!controlsClosedOnce && state.deckCount > 0) {
-      const controls = document.querySelector("details");
-      if (controls) controls.removeAttribute("open");
-      controlsClosedOnce = true;
-   }
+  if (!controlsClosedOnce && state.deckCount > 0) {
+    const controls = document.querySelector("details");
+    if (controls) controls.removeAttribute("open");
+    controlsClosedOnce = true;
+  }
 
-   
   deckDiv.classList.remove("placeholder");
 
   const topCards = state.topDrawCards || [];
   const maxShow = Math.min(topCards.length, 5);
-   
-   for (let i = 0; i < maxShow; i++) {
-     const cardEl = document.createElement("div");
-     cardEl.classList.add("card");
-   
-     const img = document.createElement("img");
-   
-     if (i === 0) {
-       // Top card shows the back
-       img.src = "/cards/back.png";
-     } else {
-       // All other cards are blank white
-       img.src = ""; // no image
-       img.style.background = "#fff";
-       img.style.border = "2px solid #000";
-     }
-   
-     cardEl.appendChild(img);
-   
-     cardEl.style.top = (i * 4) + "px";
-     cardEl.style.left = (i * 4) + "px";
-   
-     deckDiv.appendChild(cardEl);
-   }
 
+  for (let i = 0; i < maxShow; i++) {
+    const cardEl = document.createElement("div");
+    cardEl.classList.add("card");
+
+    const img = document.createElement("img");
+
+    if (i === 0) {
+      img.src = "/cards/back.png";
+    } else {
+      img.src = "";
+      img.style.background = "#fff";
+      img.style.border = "2px solid #000";
+    }
+
+    cardEl.appendChild(img);
+
+    cardEl.style.top = (i * 4) + "px";
+    cardEl.style.left = (i * 4) + "px";
+
+    deckDiv.appendChild(cardEl);
+  }
 
   deckCountDiv.textContent = state.deckCount + " cards";
 }
@@ -796,14 +746,12 @@ function renderDiscard(state) {
    RENDER PLAYERS + HANDS
 ============================================================ */
 function renderPlayers(state) {
-  // Build handsByPlayer: { playerId: [values...] }
   const handsByPlayer = {};
   state.hands.forEach(h => {
     if (!handsByPlayer[h.player_id]) handsByPlayer[h.player_id] = [];
     handsByPlayer[h.player_id].push(h.value);
   });
 
-  // Clear all seats first
   seatIds.forEach(id => {
     const cell = document.getElementById(id);
     const nameDiv = cell.querySelector(".player-name");
@@ -816,7 +764,6 @@ function renderPlayers(state) {
     });
   });
 
-  // Fill seats in order_index order
   state.players.forEach((p, index) => {
     if (index >= seatIds.length) return;
     const cellId = seatIds[index];
@@ -829,15 +776,12 @@ function renderPlayers(state) {
 
     nameDiv.textContent = `${p.name} — ${roundScore} / ${totalScore}`;
 
-    // Stayed highlight
     if (p.stayed) cell.classList.add("stayed-player");
 
-    // Active player highlight
     if (state.currentPlayerId === p.id && !p.stayed && p.active && !state.roundOver && !state.paused) {
       cell.classList.add("active-player");
     }
 
-    // Fill card slots with PNGs
     const slots = cell.querySelectorAll(".card-row .card");
     slots.forEach((slot, i) => {
       slot.innerHTML = "";
@@ -850,7 +794,6 @@ function renderPlayers(state) {
     });
   });
 
-  // Target selection mode (Option C)
   applyTargetSelection(state);
 }
 
@@ -858,25 +801,21 @@ function renderPlayers(state) {
    TARGET SELECTION MODE
 ============================================================ */
 function applyTargetSelection(state) {
-  // Clear all target classes first
   seatIds.forEach(id => {
     const cell = document.getElementById(id);
     cell.classList.remove("target-eligible", "target-ineligible");
     cell.onclick = null;
   });
 
-  // If no pending action → nothing to do
   if (!state.pendingActionType) return;
 
   const actorId = state.pendingActionActorId;
   const action = state.pendingActionType;
 
-  // Determine eligible targets
   state.players.forEach((p, index) => {
     const cellId = seatIds[index];
     const cell = document.getElementById(cellId);
 
-    // Skip empty seats
     if (!p) return;
 
     let eligible = false;
@@ -886,15 +825,14 @@ function applyTargetSelection(state) {
     }
 
     if (action === "Swap") {
-      eligible = p.active; // self allowed
+      eligible = p.active;
     }
 
     if (action === "Take3") {
-      eligible = p.active && !p.stayed; // self allowed
+      eligible = p.active && !p.stayed;
     }
 
     if (action === "SecondChance") {
-      // SecondChance is resolved via a popup, not seat clicking
       eligible = false;
     }
 
@@ -924,17 +862,22 @@ function updateButtons(state) {
     !state.paused &&
     !state.pendingActionType;
 
+  // Deck clickable only on your turn
   deckDiv.classList.toggle("disabled", !isMyTurn);
 
-   // Hide Stay button unless it's your turn
-   if (isMyTurn) {
-     stayButton.style.display = "inline-block";
-   } else {
-     stayButton.style.display = "none";
-   }  
-   
+  // Stay + Pass buttons visible only on your turn
+  if (isMyTurn) {
+    stayButton.style.display = "block";
+    passButton.style.display = "block";
+  } else {
+    stayButton.style.display = "none";
+    passButton.style.display = "none";
+  }
+
+  // End Round button
   endTurnsButton.disabled = !state.roundOver || state.paused;
 
+  // Status text
   if (state.paused) {
     statusDiv.textContent = "Game paused — waiting for disconnected players.";
     return;
@@ -978,7 +921,7 @@ function updatePauseOverlay(state) {
 }
 
 /* ============================================================
-   SOUND + ANIMATION TRIGGERS BASED ON STATE CHANGE
+   SOUND + ANIMATION TRIGGERS
 ============================================================ */
 function detectSoundAndAnimationEvents(state) {
   if (!lastState) {
@@ -986,12 +929,12 @@ function detectSoundAndAnimationEvents(state) {
     return;
   }
 
-  // 1) Detect deck creation / shuffle
+  // Deck creation / shuffle
   if (lastState.deckCount === 0 && state.deckCount > 0) {
     playSound("shuffle");
   }
 
-  // 2) Detect bust (any player whose round_bust just became true)
+  // Bust detection
   const prevBusts = new Set(
     (lastState.players || []).filter(p => p.round_bust).map(p => p.id)
   );
@@ -1002,37 +945,31 @@ function detectSoundAndAnimationEvents(state) {
     playSound("bust");
   }
 
-// 3) Detect cards newly added to hands (draw events)
-if ((state.hands || []).length > (lastState.hands || []).length) {
-  const prevCount = lastState.hands.length;
-  const newEntries = state.hands.slice(prevCount);
+  // Detect new cards drawn
+  if ((state.hands || []).length > (lastState.hands || []).length) {
+    const prevCount = lastState.hands.length;
+    const newEntries = state.hands.slice(prevCount);
 
-  newEntries.forEach(h => {
-    const newCard = h.value;
+    newEntries.forEach(h => {
+      const newCard = h.value;
+      const playerIdOfCard = h.player_id ?? h.playerId;
 
-    // FIX: support both player_id and playerId
-    const playerIdOfCard = h.player_id ?? h.playerId;
+      const seatIndex = state.players.findIndex(p => p.id === playerIdOfCard);
+      if (seatIndex >= 0 && seatIndex < seatIds.length) {
+        animateCardToSeat(newCard, seatIndex);
+      }
 
-    // Map playerId → seatIndex
-    const seatIndex = state.players.findIndex(p => p.id === playerIdOfCard);
-    if (seatIndex >= 0 && seatIndex < seatIds.length) {
-      animateCardToSeat(newCard, seatIndex);
-    }
-
-    // Sound logic
-    if (newCard === "Second Chance") {
-      playSound("secondChance");
-    } else if (newCard === "6-") {
-      playSound("sixMinus");
-    } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
-      playSound("action");
-    } else {
-      playSound("draw");
-    }
-  });
-}
-   
-  
+      if (newCard === "Second Chance") {
+        playSound("secondChance");
+      } else if (newCard === "6-") {
+        playSound("sixMinus");
+      } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
+        playSound("action");
+      } else {
+        playSound("draw");
+      }
+    });
+  }
 
   lastState = state;
 }
@@ -1043,7 +980,6 @@ if ((state.hands || []).length > (lastState.hands || []).length) {
 socket.on("stateUpdate", (state) => {
   currentState = state;
 
-  // Sound + animation detection BEFORE rendering
   detectSoundAndAnimationEvents(state);
 
   renderDeck(state);
@@ -1054,7 +990,7 @@ socket.on("stateUpdate", (state) => {
 });
 
 /* ============================================================
-   ON CONNECT → LOAD CARD META + JOIN ROOM
+   ON CONNECT → LOAD META + JOIN ROOM
 ============================================================ */
 socket.on("connect", async () => {
   await loadCardMeta();
@@ -1064,6 +1000,8 @@ socket.on("connect", async () => {
 /* ============================================================
    UI EVENTS
 ============================================================ */
+
+// Draw card
 deckDiv.addEventListener("click", () => {
   if (!currentState) return;
 
@@ -1075,13 +1013,12 @@ deckDiv.addEventListener("click", () => {
     !currentState.paused &&
     !currentState.pendingActionType;
 
-  // Allow first click to initialize deck
   if (!isMyTurn && !deckNotStarted) return;
 
   socket.emit("drawCard", { roomCode, playerId });
 });
 
-   
+// Stay
 stayButton.addEventListener("click", () => {
   if (!currentState) return;
 
@@ -1096,11 +1033,27 @@ stayButton.addEventListener("click", () => {
   socket.emit("stay", { roomCode, playerId });
 });
 
+// Pass
+passButton.addEventListener("click", () => {
+  if (!currentState) return;
+
+  const isMyTurn =
+    currentState.currentPlayerId === playerId &&
+    !currentState.roundOver &&
+    !currentState.paused &&
+    !currentState.pendingActionType;
+
+  if (!isMyTurn) return;
+
+  socket.emit("pass", { roomCode, playerId });
+});
+
+// End Round
 endTurnsButton.addEventListener("click", () => {
   socket.emit("endRound", { roomCode });
 });
 
-// Test Sounds Popup Logic
+// Test Sounds Popup
 const testSoundsBtn = document.getElementById("test-sounds-btn");
 const soundPopup = document.getElementById("sound-popup");
 const closeSoundPopup = document.getElementById("close-sound-popup");
@@ -1119,17 +1072,12 @@ document.querySelectorAll(".sound-item").forEach(item => {
     const soundName = item.getAttribute("data-sound");
     playSound(soundName);
 
-    // Remove highlight from all items
     document.querySelectorAll(".sound-item").forEach(i => i.classList.remove("selected"));
-
-    // Highlight the clicked item
     item.classList.add("selected");
   });
 });
 
-
-
-   
+// Remove player
 removeBtn.addEventListener("click", () => {
   const name = removeNameInput.value.trim();
   if (!name) return;
@@ -1146,13 +1094,3 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-

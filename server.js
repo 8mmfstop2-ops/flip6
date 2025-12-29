@@ -892,90 +892,61 @@ app.get("/api/cards/meta", async (req, res) => {
 app.post("/api/player/join", async (req, res) => {
   try {
     const { name, roomCode } = req.body;
-    const cleanName = String(name || "").trim().toLowerCase();
     const code = String(roomCode || "").trim().toUpperCase();
+    const cleanName = String(name || "").trim();
 
     if (!cleanName || !code) {
-      return res.status(400).json({ error: "Name and room code are required." });
+      return res.status(400).json({ error: "Missing name or room code." });
     }
 
-    // Get or create room
-    let roomRes = await pool.query("SELECT * FROM rooms WHERE code = $1", [code]);
+    // Load room
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
     if (!roomRes.rows.length) {
-      const created = await pool.query(
-        "INSERT INTO rooms (code, locked) VALUES ($1, FALSE) RETURNING *",
-        [code]
-      );
-      roomRes = created;
+      return res.status(400).json({ error: "Room not found." });
     }
     const room = roomRes.rows[0];
 
-    // Check if player with this name already exists in this room
-    const existingRes = await pool.query(
-      `SELECT * FROM room_players
-       WHERE room_id = $1 AND LOWER(name) = LOWER($2)`,
+    // CASE‑INSENSITIVE duplicate name check
+    const dupRes = await pool.query(
+      `SELECT player_id, connected
+       FROM room_players
+       WHERE room_id = $1
+         AND LOWER(name) = LOWER($2)
+         AND active = TRUE`,
       [room.id, cleanName]
     );
-    const existing = existingRes.rows[0];
 
-    // If room locked and player not already in this room → deny
-    if (room.locked && !existing) {
-      return res.status(400).json({ error: "Room locked. Game already started." });
-    }
-
-    // If player exists → rejoin (keep same playerId)
-    if (existing) {
-      const playerId = existing.player_id;
-      return res.json({
-        redirect: `/room/${code}?playerId=${playerId}`
+    // If name exists AND that player is connected → reject
+    if (dupRes.rows.length > 0 && dupRes.rows[0].connected) {
+      return res.status(400).json({
+        error: "A player by that name is already in the room."
       });
     }
 
-    // Room unlocked and player not existing → create new slot
-    const playersRes = await pool.query(
-      `SELECT * FROM room_players
-       WHERE room_id = $1 AND active = TRUE
-       ORDER BY order_index`,
-      [room.id]
-    );
+    let playerId;
 
-    if (playersRes.rows.length >= 6) {
-      return res.status(400).json({ error: "Room is full (6 players)." });
+    if (dupRes.rows.length > 0) {
+      // Name exists but player is disconnected → RECONNECT
+      playerId = dupRes.rows[0].player_id;
+    } else {
+      // Create new player
+      const insertRes = await pool.query(
+        `INSERT INTO room_players (room_id, name, active, connected)
+         VALUES ($1, $2, TRUE, FALSE)
+         RETURNING player_id`,
+        [room.id, cleanName]
+      );
+      playerId = insertRes.rows[0].player_id;
     }
 
-    // Compute next available player_id (1..6)
-    const idRes = await pool.query(
-      `SELECT player_id FROM room_players
-       WHERE room_id = $1
-       ORDER BY player_id ASC`,
-      [room.id]
-    );
-
-    let playerId = 1;
-    for (const row of idRes.rows) {
-      if (row.player_id === playerId) {
-        playerId++;
-      } else {
-        break;
-      }
-    }
-
-    // Compute seat order
-    const orderIndex = playersRes.rows.length;
-
-    // Insert new player
-    await pool.query(
-      `INSERT INTO room_players
-       (room_id, player_id, name, order_index, active, stayed, connected, round_bust)
-       VALUES ($1, $2, $3, $4, TRUE, FALSE, TRUE, FALSE)`,
-      [room.id, playerId, cleanName, orderIndex]
-    );
-
-    res.json({
-      redirect: `/room/${code}?playerId=${playerId}`
+    // Redirect to game table
+    return res.json({
+      redirect: `/table/${code}?playerId=${playerId}`
     });
-
-  } catch (err) {
+   } catch (err) {
     console.error("JOIN ERROR:", err);
 
     // Return the REAL SQL error to the browser
@@ -1058,7 +1029,7 @@ socket.on("joinRoom", async ({ roomCode, playerId }) => {
 
     const player = playerRes.rows[0];
 
-    // 🚫 DUPLICATE LOGIN CHECK
+    // 🚫 Duplicate login check
     if (player.connected && player.socket_id && player.socket_id !== socket.id) {
       socket.emit("joinError", {
         message: "This player is already signed in on another device."
@@ -1066,7 +1037,7 @@ socket.on("joinRoom", async ({ roomCode, playerId }) => {
       return;
     }
 
-    // Mark player as connected with this socket
+    // ✅ Mark player as connected
     await pool.query(
       `UPDATE room_players
        SET socket_id = $1, connected = TRUE
@@ -1074,10 +1045,8 @@ socket.on("joinRoom", async ({ roomCode, playerId }) => {
       [socket.id, playerId, room.id]
     );
 
-    // Recompute paused state
     await recomputePause(room.id);
 
-    // Join socket.io room
     socket.join(code);
 
     // If no current player (new round), pick the first
@@ -1100,6 +1069,7 @@ socket.on("joinRoom", async ({ roomCode, playerId }) => {
 });
 
 
+
 socket.on("disconnect", async () => {
   try {
     await pool.query(
@@ -1114,9 +1084,5 @@ socket.on("disconnect", async () => {
 });
 
 
-socket.on("joinError", (data) => {
-  alert(data.message);
-  window.location.href = "/"; // or your lobby page
-});
 
 

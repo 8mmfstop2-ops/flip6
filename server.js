@@ -989,10 +989,22 @@ app.post("/api/player/join", async (req, res) => {
       "SELECT * FROM rooms WHERE code = $1",
       [code]
     );
-    if (!roomRes.rows.length) {
-      return res.status(400).json({ error: "Room not found." });
-    }
-    const room = roomRes.rows[0];
+
+   let room;
+   
+   if (!roomRes.rows.length) {
+   // Create new room automatically
+   const createRes = await pool.query(
+      `INSERT INTO rooms (code, locked, round_number, round_over, paused)
+      VALUES ($1, FALSE, 1, FALSE, FALSE)
+      RETURNING *`,
+      [code]
+   );
+      room = createRes.rows[0];
+   } else {
+      room = roomRes.rows[0];
+   }
+
 
     // CASE‑INSENSITIVE duplicate name check
     const dupRes = await pool.query(
@@ -1183,4 +1195,5 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => console.log("Server running on port", PORT));
+
 

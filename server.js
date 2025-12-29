@@ -1013,45 +1013,44 @@ app.post("/api/player/join", async (req, res) => {
 
     let playerId;
 
-         // Create new player
-         const insertRes = await pool.query(
-           `
-           INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
-           VALUES (
-             $1,
-             COALESCE(
-               (SELECT MAX(player_id) + 1 FROM room_players WHERE room_id = $1),
-               1
-             ),
-             $2,
-             COALESCE(
-               (SELECT MAX(order_index) + 1 FROM room_players WHERE room_id = $1),
-               0
-             ),
-             TRUE,
-             FALSE
-           )
-           RETURNING player_id
-           `,
-           [room.id, cleanName]
-         );
-         playerId = insertRes.rows[0].player_id;
-
-    }
+    // Create new player
+    const insertRes = await pool.query(
+      `
+      INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
+      VALUES (
+        $1,
+        COALESCE(
+          (SELECT MAX(player_id) + 1 FROM room_players WHERE room_id = $1),
+          1
+        ),
+        $2,
+        COALESCE(
+          (SELECT MAX(order_index) + 1 FROM room_players WHERE room_id = $1),
+          0
+        ),
+        TRUE,
+        FALSE
+      )
+      RETURNING player_id
+      `,
+      [room.id, cleanName]
+    );
+    playerId = insertRes.rows[0].player_id;
 
     // Redirect to game table
     return res.json({
       redirect: `/table/${code}?playerId=${playerId}`
     });
-   } catch (err) {
+
+  } catch (err) {
     console.error("JOIN ERROR:", err);
 
-    // Return the REAL SQL error to the browser
     res.status(500).json({
       error: "JOIN ERROR: " + err.message
     });
   }
 });
+
 
 // Serve the playing board
 app.get("/room/:code", (req, res) => {
@@ -1184,3 +1183,4 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => console.log("Server running on port", PORT));
+

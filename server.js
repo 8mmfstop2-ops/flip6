@@ -547,7 +547,7 @@ async function computeScore(roomId, playerId) {
        `SELECT player_id
         FROM room_players
         WHERE room_id = $1 AND active = TRUE
-        ORDER BY seat_number ASC`,
+        ORDER BY order_index ASC`,
        [roomId]
      );
    
@@ -1126,5 +1126,5 @@ io.on("connection", (socket) => {
     }
   });
 
-}); // <-- THIS WAS MISSING
+});  
 

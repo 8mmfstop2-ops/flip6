@@ -699,38 +699,45 @@ async function endRound(roomId) {
  * ============================================================
  */
 async function getState(roomId) {
+  // Load room safely
   const roomRes = await pool.query(
     "SELECT * FROM rooms WHERE id = $1",
     [roomId]
   );
+  if (!roomRes.rows.length) {
+    return null; // room deleted or invalid
+  }
   const room = roomRes.rows[0];
 
+  // Load players in seat/turn order
   const playersRes = await pool.query(
     `SELECT id, name, order_index, active, stayed, total_score, connected, round_bust
      FROM room_players
      WHERE room_id = $1
-     ORDER BY order_index`,
+     ORDER BY order_index ASC`,
     [roomId]
   );
 
+  // Load all cards in hands
   const handsRes = await pool.query(
     `SELECT player_id, value
      FROM player_hands
      WHERE room_id = $1
-     ORDER BY position`,
+     ORDER BY position ASC`,
     [roomId]
   );
 
+  // Deck + discard counts
   const deckCountRes = await pool.query(
     "SELECT COUNT(*) FROM draw_pile WHERE room_id = $1",
     [roomId]
   );
-
   const discardCountRes = await pool.query(
     "SELECT COUNT(*) FROM discard_pile WHERE room_id = $1",
     [roomId]
   );
 
+  // Top 5 draw cards (for debugging / animations)
   const topCardsRes = await pool.query(
     `SELECT value FROM draw_pile
      WHERE room_id = $1
@@ -739,6 +746,7 @@ async function getState(roomId) {
     [roomId]
   );
 
+  // Disconnected players (for pause logic)
   const disconnectedPlayers = playersRes.rows
     .filter(p => p.active && !p.connected)
     .map(p => ({ id: p.id, name: p.name }));
@@ -747,22 +755,35 @@ async function getState(roomId) {
     roomId,
     code: room.code,
     locked: room.locked,
+
+    // Turn + dealer
     currentPlayerId: room.current_player_id,
-    roundStarterId: room.round_starter_id,   // ✅ ADDED FOR DEALER BUTTON
+    roundStarterId: room.round_starter_id,
+
+    // Round state
     roundNumber: room.round_number,
     roundOver: room.round_over,
     paused: room.paused,
+
+    // Pending action (Freeze, Swap, Take 3, Second Chance)
     pendingActionType: room.pending_action_type,
     pendingActionActorId: room.pending_action_actor_id,
     pendingActionValue: room.pending_action_value,
+
+    // Players + hands
     players: playersRes.rows,
     hands: handsRes.rows,
+
+    // Deck + discard
     deckCount: parseInt(deckCountRes.rows[0].count, 10),
     discardCount: parseInt(discardCountRes.rows[0].count, 10),
     topDrawCards: topCardsRes.rows.map(r => r.value),
+
+    // Pause logic
     disconnectedPlayers
   };
 }
+
 
 
 
@@ -1158,5 +1179,6 @@ io.on("connection", (socket) => {
   });
 
 });  
+
 
 

@@ -89,6 +89,7 @@ const pool = new Pool({
       CREATE TABLE IF NOT EXISTS room_players (
         id SERIAL PRIMARY KEY,
         room_id INT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+        player_id INT NOT NULL,
         name TEXT NOT NULL,
         order_index INT NOT NULL,
         active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -917,30 +918,51 @@ app.post("/api/player/join", async (req, res) => {
       });
     }
 
-    // Room unlocked and player not existing → create new slot
-    const playersRes = await pool.query(
-      `SELECT * FROM room_players
-       WHERE room_id = $1 AND active = TRUE
-       ORDER BY order_index`,
-      [room.id]
-    );
-    if (playersRes.rows.length >= 6) {
-      return res.status(400).json({ error: "Room is full (6 players)." });
-    }
+   // Room unlocked and player not existing → create new slot
+   const playersRes = await pool.query(
+     `SELECT * FROM room_players
+      WHERE room_id = $1 AND active = TRUE
+      ORDER BY order_index`,
+     [room.id]
+   );
+   
+   if (playersRes.rows.length >= 6) {
+     return res.status(400).json({ error: "Room is full (6 players)." });
+   }
+   
+   // Compute next available player_id (1..6)
+   const idRes = await pool.query(
+     `SELECT player_id FROM room_players
+      WHERE room_id = $1
+      ORDER BY player_id ASC`,
+     [room.id]
+   );
+   
+   let playerId = 1;
+   for (const row of idRes.rows) {
+     if (row.player_id === playerId) {
+       playerId++;
+     } else {
+       break;
+     }
+   }
+   
+   // Compute seat order
+   const orderIndex = playersRes.rows.length;
+   
+   // Insert new player
+   const inserted = await pool.query(
+     `INSERT INTO room_players
+      (room_id, player_id, name, order_index, active, stayed, connected, round_bust)
+      VALUES ($1, $2, $3, $4, TRUE, FALSE, TRUE, FALSE)
+      RETURNING player_id`,
+     [room.id, playerId, cleanName, orderIndex]
+   );
+   
+   res.json({
+     redirect: `/room/${code}?playerId=${playerId}`
+   });
 
-    const orderIndex = playersRes.rows.length;
-    const inserted = await pool.query(
-      `INSERT INTO room_players
-       (room_id, name, order_index, active, stayed, connected, round_bust)
-       VALUES ($1, $2, $3, TRUE, FALSE, TRUE, FALSE)
-       RETURNING id`,
-      [room.id, cleanName, orderIndex]
-    );
-    const playerId = inserted.rows[0].id;
-
-    res.json({
-      redirect: `/room/${code}?playerId=${playerId}`
-    });
    } catch (err) {
      console.error("JOIN ERROR:", err);
    
@@ -1539,6 +1561,7 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Flip‑to‑6 server running on port " + PORT);
 });
+
 
 
 

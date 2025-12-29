@@ -862,11 +862,14 @@ function updateButtons(state) {
     !state.paused &&
     !state.pendingActionType;
 
+  // NEW: game not started yet (no deck)
+  const gameNotStarted = state.deckCount === 0;
+
   // Deck clickable only on your turn
   deckDiv.classList.toggle("disabled", !isMyTurn);
 
-  // Stay + Pass buttons visible only on your turn
-  if (isMyTurn) {
+  // Stay + Pass buttons visible only on your turn AND game started
+  if (isMyTurn && !gameNotStarted) {
     stayButton.style.display = "block";
     passButton.style.display = "block";
   } else {
@@ -898,7 +901,7 @@ function updateButtons(state) {
     return;
   }
 
-  if (isMyTurn) {
+  if (isMyTurn && !gameNotStarted) {
     const me = state.players.find(p => p.id === playerId);
     statusDiv.textContent = `Your turn, ${me ? me.name : "Player"}.`;
   } else {
@@ -906,6 +909,9 @@ function updateButtons(state) {
     statusDiv.textContent = current ? `Current player: ${current.name}` : "Waiting for players…";
   }
 }
+
+
+   
 
 /* ============================================================
    PAUSE OVERLAY
@@ -1094,3 +1100,4 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+

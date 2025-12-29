@@ -915,7 +915,14 @@ function updateButtons(state) {
     !state.pendingActionType;
 
   deckDiv.classList.toggle("disabled", !isMyTurn);
-  stayButton.disabled = !isMyTurn;
+
+   // Hide Stay button unless it's your turn
+   if (isMyTurn) {
+     stayButton.style.display = "inline-block";
+   } else {
+     stayButton.style.display = "none";
+   }  
+   
   endTurnsButton.disabled = !state.roundOver || state.paused;
 
   if (state.paused) {
@@ -1129,6 +1136,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

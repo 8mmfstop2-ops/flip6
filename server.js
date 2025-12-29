@@ -1007,82 +1007,78 @@ io.on("connection", (socket) => {
    *  - Sends full stateUpdate to this socket
    */
 
-socket.on("joinRoom", async ({ roomCode, playerId }) => {
-  try {
-    const code = String(roomCode || "").trim().toUpperCase();
+  socket.on("joinRoom", async ({ roomCode, playerId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
 
-    // Load room
-    const roomRes = await pool.query(
-      "SELECT * FROM rooms WHERE code = $1",
-      [code]
-    );
-    if (!roomRes.rows.length) return;
-    const room = roomRes.rows[0];
+      // Load room
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
 
-    // Load player
-    const playerRes = await pool.query(
-      `SELECT * FROM room_players
-       WHERE player_id = $1 AND room_id = $2 AND active = TRUE`,
-      [playerId, room.id]
-    );
-    if (!playerRes.rows.length) return;
+      // Load player
+      const playerRes = await pool.query(
+        `SELECT * FROM room_players
+         WHERE player_id = $1 AND room_id = $2 AND active = TRUE`,
+        [playerId, room.id]
+      );
+      if (!playerRes.rows.length) return;
 
-    const player = playerRes.rows[0];
+      const player = playerRes.rows[0];
 
-    // 🚫 Duplicate login check
-    if (player.connected && player.socket_id && player.socket_id !== socket.id) {
-      socket.emit("joinError", {
-        message: "This player is already signed in on another device."
-      });
-      return;
+      // Duplicate login check
+      if (player.connected && player.socket_id && player.socket_id !== socket.id) {
+        socket.emit("joinError", {
+          message: "This player is already signed in on another device."
+        });
+        return;
+      }
+
+      // Mark player as connected
+      await pool.query(
+        `UPDATE room_players
+         SET socket_id = $1, connected = TRUE
+         WHERE player_id = $2 AND room_id = $3`,
+        [socket.id, playerId, room.id]
+      );
+
+      await recomputePause(room.id);
+
+      socket.join(code);
+
+      // If no current player (new round), pick the first
+      const freshRoomRes = await pool.query(
+        "SELECT * FROM rooms WHERE id = $1",
+        [room.id]
+      );
+      const freshRoom = freshRoomRes.rows[0];
+
+      if (!freshRoom.current_player_id && !freshRoom.round_over) {
+        await advanceTurn(room.id);
+      }
+
+      const state = await getState(room.id);
+      io.to(code).emit("stateUpdate", state);
+
+    } catch (err) {
+      console.error("joinRoom error:", err);
     }
+  });
 
-    // ✅ Mark player as connected
-    await pool.query(
-      `UPDATE room_players
-       SET socket_id = $1, connected = TRUE
-       WHERE player_id = $2 AND room_id = $3`,
-      [socket.id, playerId, room.id]
-    );
-
-    await recomputePause(room.id);
-
-    socket.join(code);
-
-    // If no current player (new round), pick the first
-    const freshRoomRes = await pool.query(
-      "SELECT * FROM rooms WHERE id = $1",
-      [room.id]
-    );
-    const freshRoom = freshRoomRes.rows[0];
-
-    if (!freshRoom.current_player_id && !freshRoom.round_over) {
-      await advanceTurn(room.id);
+  socket.on("disconnect", async () => {
+    try {
+      await pool.query(
+        `UPDATE room_players
+         SET connected = FALSE, socket_id = NULL
+         WHERE socket_id = $1`,
+        [socket.id]
+      );
+    } catch (err) {
+      console.error("disconnect cleanup error:", err);
     }
+  });
 
-    const state = await getState(room.id);
-    io.to(code).emit("stateUpdate", state);
-
-  } catch (err) {
-    console.error("joinRoom error:", err);
-  }
-});
-
-
-
-socket.on("disconnect", async () => {
-  try {
-    await pool.query(
-      `UPDATE room_players
-       SET connected = FALSE, socket_id = NULL
-       WHERE socket_id = $1`,
-      [socket.id]
-    );
-  } catch (err) {
-    console.error("disconnect cleanup error:", err);
-  }
-});
-
-
-
-
+}); // <-- THIS WAS MISSING

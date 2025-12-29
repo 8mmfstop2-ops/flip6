@@ -113,8 +113,9 @@
     }
   
     #msg {
+      display: none;                 /* HIDDEN by default */
       background: rgba(255, 0, 0, 0.25); /* soft transparent red */
-      color: #b00000;                    /* darker red text */
+      color: #00000;                    
       padding: 12px 18px;
       border-radius: 8px;
       font-size: 14px;
@@ -184,6 +185,8 @@
 
       if (!name || !roomCode) {
         msg.textContent = "Please enter both name and room code.";
+      msg.style.display = "block";
+
         return;
       }
 
@@ -198,6 +201,8 @@
 
         if (!res.ok) {
           msg.textContent = data.error || "Unable to join room.";
+msg.style.display = "block";
+
           return;
         }
 
@@ -206,6 +211,8 @@
 
       } catch (err) {
         msg.textContent = "Network error. Try again.";
+msg.style.display = "block";
+
       }
     });
 
@@ -222,6 +229,7 @@
   </script>
 </body>
 </html>
+
 
 
 

@@ -878,7 +878,7 @@ app.get("/api/cards/meta", async (req, res) => {
 app.post("/api/player/join", async (req, res) => {
   try {
     const { name, roomCode } = req.body;
-    const cleanName = String(name || "").trim();
+    const cleanName = String(name || "").trim().toLowerCase();
     const code = String(roomCode || "").trim().toUpperCase();
 
     if (!cleanName || !code) {
@@ -899,7 +899,7 @@ app.post("/api/player/join", async (req, res) => {
     // Check if player with this name already exists in this room
     const existingRes = await pool.query(
       `SELECT * FROM room_players
-       WHERE room_id = $1 AND name = $2`,
+       WHERE room_id = $1 AND LOWER(name) = LOWER($2)`,
       [room.id, cleanName]
     );
     const existing = existingRes.rows[0];
@@ -1235,7 +1235,7 @@ io.on("connection", (socket) => {
 
       const pRes = await pool.query(
         `SELECT * FROM room_players
-         WHERE room_id = $1 AND name = $2`,
+         WHERE room_id = $1 AND LOWER(name) = LOWER($2)`,
         [room.id, name]
       );
       if (!pRes.rows.length) return;
@@ -1539,6 +1539,7 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Flip‑to‑6 server running on port " + PORT);
 });
+
 
 
 

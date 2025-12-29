@@ -116,7 +116,7 @@ function renderDeck(deckArray) {
 
     const idx = document.createElement("span");
     idx.className = "card-index";
-    idx.textContent = "#" + index;
+    idx.textContent = "#" + (index+1);
 
     div.appendChild(label);
     div.appendChild(idx);
@@ -158,5 +158,6 @@ async function loadPile() {
 
 </body>
 </html>
+
 
 

@@ -528,6 +528,8 @@ const volumeSlider = document.getElementById("volume-slider");
 discardPileDiv.style.pointerEvents = "none";
 discardPileDiv.style.cursor = "not-allowed";
 
+let controlsClosedOnce = false;
+
 
 /* ============================================================
    SEAT MAPPING (order_index → seat cell)
@@ -725,6 +727,14 @@ function renderDeck(state) {
     return;
   }
 
+   // AUTO‑CLOSE CONTROLS ACCORDION ON FIRST DECK CREATION
+   if (!controlsClosedOnce && state.deckCount > 0) {
+      const controls = document.querySelector("details");
+      if (controls) controls.removeAttribute("open");
+      controlsClosedOnce = true;
+   }
+
+   
   deckDiv.classList.remove("placeholder");
 
   const topCards = state.topDrawCards || [];
@@ -1118,6 +1128,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

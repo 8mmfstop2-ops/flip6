@@ -225,6 +225,12 @@ td.discard-cell {
   font-size: 0.9em;
 }
 
+#volume-slider {
+  accent-color: #1ff233; /* bright green */
+}
+
+
+   
 /* ============================================================
    PLAYER HIGHLIGHTING
 ============================================================ */
@@ -302,28 +308,17 @@ td.discard-cell {
     <button id="removeBtn">Remove Player</button>
 
     <!-- Audio controls: mute + volume -->
-    <div class="controls-audio">
-      <button id="mute-toggle">Mute</button>
-      <label>
-        Volume:
-        <input id="volume-slider" type="range" min="0" max="100" value="90">
-      </label>
-    </div>
-
-   <!-- Test Sounds Popup Button -->
-   <div class="controls-audio" style="margin-top:10px;">
+   <div class="controls-audio" style="gap:15px;">
+     <button id="mute-toggle">Mute</button>
+   
+     <label>
+       Volume:
+       <input id="volume-slider" type="range" min="0" max="100" value="90">
+     </label>
+   
      <button id="test-sounds-btn">Test Sounds</button>
    </div>
 
-   <!-- Volume Preview Meter -->
-   <div id="volume-meter-container" 
-        style="width:120px; height:12px; background:#555; border-radius:6px; margin:8px auto;">
-     <div id="volume-meter-bar" 
-          style="height:100%; width:90%; background:#1ff233; border-radius:6px; transition:width 0.1s linear;">
-     </div>
-   </div>
-     
-     
   </div>  
 </details>
 
@@ -573,19 +568,12 @@ function playSound(name) {
 volumeSlider.addEventListener("input", () => {
   const val = parseInt(volumeSlider.value, 10);
   volumeLevel = Math.max(0, Math.min(100, val)) / 100;
-
-  // Update meter bar width
-  const meterBar = document.getElementById("volume-meter-bar");
-  meterBar.style.width = (volumeLevel * 100) + "%";
 });
 
 muteToggleBtn.addEventListener("click", () => {
   isMuted = !isMuted;
   muteToggleBtn.textContent = isMuted ? "Unmute" : "Mute";
 
-  // Update meter to show 0 when muted
-  const meterBar = document.getElementById("volume-meter-bar");
-  meterBar.style.width = isMuted ? "0%" : (volumeLevel * 100) + "%";
 });
    
 
@@ -606,7 +594,7 @@ async function loadCardMeta() {
 
 function getCardImgSrc(value) {
   const filename = cardMeta[value] || (value + ".png");
-  return "cards/" + filename;
+  return "/cards/" + filename;
 }
 
 /* ============================================================
@@ -742,7 +730,7 @@ function renderDeck(state) {
     cardEl.classList.add("card");
 
     const img = document.createElement("img");
-    img.src = getCardImgSrc(value);
+    img.src = "/cards/back.png";
     cardEl.appendChild(img);
 
     cardEl.style.top = (i * 4) + "px";
@@ -1119,5 +1107,6 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 

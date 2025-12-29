@@ -84,7 +84,8 @@ const pool = new Pool({
         paused BOOLEAN NOT NULL DEFAULT FALSE,
         pending_action_type TEXT,
         pending_action_actor_id INT,
-        pending_action_value TEXT
+        pending_action_value TEXT,
+        round_starter_id INTEGER
       );
     `);
 
@@ -440,78 +441,65 @@ async function recomputePause(roomId) {
  * TURN ORDER
  * ============================================================
  */
-
 // Advance to next active + not stayed player; if none, round_over = TRUE
-async function advanceTurn(roomId) {
-  const playersRes = await pool.query(
-    `SELECT id, order_index, active, stayed
-     FROM room_players
-     WHERE room_id = $1
-     ORDER BY order_index`,
-    [roomId]
-  );
+async function advanceTurn(roomId, options = {}) {
+  const { forceCurrent = false } = options;
+
+  // Load room
   const roomRes = await pool.query(
-    "SELECT current_player_id FROM rooms WHERE id = $1",
+    `SELECT current_player_id FROM rooms WHERE id = $1`,
     [roomId]
   );
-  const list = playersRes.rows;
-  let current = roomRes.rows[0].current_player_id;
+  const room = roomRes.rows[0];
 
-  // If no current player, pick first active & not stayed
-  if (!current) {
-    const first = list.find(p => p.active && !p.stayed);
-    if (first) {
-      await pool.query(
-        "UPDATE rooms SET current_player_id = $1 WHERE id = $2",
-        [first.id, roomId]
-      );
-    }
+  // If we already set the starting player for the round, do NOT rotate
+  if (forceCurrent && room.current_player_id) {
     return;
   }
 
-  const curPlayer = list.find(p => p.id === current);
-  if (!curPlayer) {
-    // If current not found (e.g. removed), pick first valid
-    const first = list.find(p => p.active && !p.stayed);
-    if (first) {
-      await pool.query(
-        "UPDATE rooms SET current_player_id = $1 WHERE id = $2",
-        [first.id, roomId]
-      );
-    } else {
-      await pool.query(
-        "UPDATE rooms SET round_over = TRUE WHERE id = $1",
-        [roomId]
-      );
-    }
+  // Load active players in turn order
+  const playersRes = await pool.query(
+    `SELECT id
+     FROM room_players
+     WHERE room_id = $1 AND active = TRUE
+     ORDER BY order_index ASC`,
+    [roomId]
+  );
+
+  const players = playersRes.rows.map(p => p.id);
+
+  if (players.length === 0) return;
+
+  // If no current player, start with first
+  if (!room.current_player_id) {
+    await pool.query(
+      `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
+      [players[0], roomId]
+    );
     return;
   }
 
-  let idx = curPlayer.order_index;
-  let nextId = null;
+  // Find current player index
+  const idx = players.indexOf(room.current_player_id);
 
-  // Loop at most list.length times to find next
-  for (let i = 0; i < list.length; i++) {
-    idx = (idx + 1) % list.length;
-    const candidate = list[idx];
-    if (candidate.active && !candidate.stayed) {
-      nextId = candidate.id;
-      break;
-    }
+  // If not found, reset to first
+  if (idx === -1) {
+    await pool.query(
+      `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
+      [players[0], roomId]
+    );
+    return;
   }
 
-  if (nextId) {
-    await pool.query(
-      "UPDATE rooms SET current_player_id = $1 WHERE id = $2",
-      [nextId, roomId]
-    );
-  } else {
-    await pool.query(
-      "UPDATE rooms SET round_over = TRUE WHERE id = $1",
-      [roomId]
-    );
-  }
+  // Rotate to next player
+  const nextIndex = (idx + 1) % players.length;
+
+  await pool.query(
+    `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
+    [players[nextIndex], roomId]
+  );
 }
+
 
 /**
  * ============================================================
@@ -552,21 +540,56 @@ async function computeScore(roomId, playerId) {
   return score * mult;
 }
 
+
+   async function getNextStartingPlayer(roomId, lastStarterId) {
+     // Load active players in seat order
+     const playersRes = await pool.query(
+       `SELECT player_id
+        FROM room_players
+        WHERE room_id = $1 AND active = TRUE
+        ORDER BY seat_number ASC`,
+       [roomId]
+     );
+   
+     const players = playersRes.rows.map(r => r.player_id);
+   
+     if (players.length === 0) return null;
+   
+     // If no last starter, default to first player
+     if (!lastStarterId) return players[0];
+   
+     const index = players.indexOf(lastStarterId);
+   
+     // If last starter not found, default to first
+     if (index === -1) return players[0];
+   
+     // Rotate to next player
+     const nextIndex = (index + 1) % players.length;
+     return players[nextIndex];
+   }
+
+
+
 // End of round: compute scores, move all cards to discard, reset round state
 async function endRound(roomId) {
+  // Get current round number
   const roomRes = await pool.query(
-    "SELECT round_number FROM rooms WHERE id = $1",
+    "SELECT round_number, current_player_id FROM rooms WHERE id = $1",
     [roomId]
   );
-  const round = roomRes.rows[0].round_number;
+  const room = roomRes.rows[0];
+  const round = room.round_number;
 
+  // Load players in turn order
   const playersRes = await pool.query(
-    `SELECT id, round_bust FROM room_players
+    `SELECT id, round_bust
+     FROM room_players
      WHERE room_id = $1 AND active = TRUE
      ORDER BY order_index`,
     [roomId]
   );
 
+  // Score each player
   for (const p of playersRes.rows) {
     const pid = p.id;
     let score = 0;
@@ -574,7 +597,7 @@ async function endRound(roomId) {
     if (!p.round_bust) {
       score = await computeScore(roomId, pid);
 
-      // OPTIONAL: 6-card-hand bonus (+15) — enable when you're ready
+      // 6-card bonus
       const countRes = await pool.query(
         `SELECT COUNT(*) FROM player_hands
          WHERE room_id = $1 AND player_id = $2`,
@@ -586,18 +609,20 @@ async function endRound(roomId) {
       }
     }
 
+    // Insert round score
     await pool.query(
       `INSERT INTO round_scores (room_id, player_id, round_number, score)
        VALUES ($1, $2, $3, $4)`,
       [roomId, pid, round, score]
     );
 
+    // Update total score
     await pool.query(
       "UPDATE room_players SET total_score = total_score + $1 WHERE id = $2",
       [score, pid]
     );
 
-    // Move player's cards to discard
+    // Move cards to discard
     const hand = await pool.query(
       "SELECT value FROM player_hands WHERE room_id = $1 AND player_id = $2",
       [roomId, pid]
@@ -616,12 +641,11 @@ async function endRound(roomId) {
     [roomId]
   );
 
-  // Advance round number, clear round_over, reset current_player_id and pending actions
+  // Advance round number and reset round state
   await pool.query(
     `UPDATE rooms
      SET round_number = round_number + 1,
          round_over = FALSE,
-         current_player_id = NULL,
          pending_action_type = NULL,
          pending_action_actor_id = NULL,
          pending_action_value = NULL
@@ -632,18 +656,34 @@ async function endRound(roomId) {
   // Ensure new deck for next round
   await ensureDeck(roomId);
 
-  // Pick first player for next round
-  await advanceTurn(roomId);
+  // Determine next round's starting player
+  const nextStarter = await getNextStartingPlayer(roomId);
+
+  // Set next starter
+   await pool.query(
+     `UPDATE rooms
+      SET current_player_id = $1,
+          round_starter_id = $1
+      WHERE id = $2`,
+     [nextStarter, roomId]
+   );
+
+
+  // Begin next round with the chosen starter
+  await advanceTurn(roomId, { forceCurrent: true });
 }
+
 
 /**
  * ============================================================
  * STATE PACKING FOR CLIENT
  * ============================================================
  */
-
 async function getState(roomId) {
-  const roomRes = await pool.query("SELECT * FROM rooms WHERE id = $1", [roomId]);
+  const roomRes = await pool.query(
+    "SELECT * FROM rooms WHERE id = $1",
+    [roomId]
+  );
   const room = roomRes.rows[0];
 
   const playersRes = await pool.query(
@@ -666,6 +706,7 @@ async function getState(roomId) {
     "SELECT COUNT(*) FROM draw_pile WHERE room_id = $1",
     [roomId]
   );
+
   const discardCountRes = await pool.query(
     "SELECT COUNT(*) FROM discard_pile WHERE room_id = $1",
     [roomId]
@@ -688,6 +729,7 @@ async function getState(roomId) {
     code: room.code,
     locked: room.locked,
     currentPlayerId: room.current_player_id,
+    roundStarterId: room.round_starter_id,   // ✅ ADDED FOR DEALER BUTTON
     roundNumber: room.round_number,
     roundOver: room.round_over,
     paused: room.paused,
@@ -702,6 +744,9 @@ async function getState(roomId) {
     disconnectedPlayers
   };
 }
+
+
+
 
 /**
  * ============================================================
@@ -1082,3 +1127,4 @@ io.on("connection", (socket) => {
   });
 
 }); // <-- THIS WAS MISSING
+

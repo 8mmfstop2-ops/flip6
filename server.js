@@ -58,7 +58,7 @@ const pool = new Pool({
 
 /**
  * ============================================================
- * DATABASE INIT
+ * DATABASE INIT (with unique index for player names)
  * ============================================================
  */
 (async () => {
@@ -106,6 +106,13 @@ const pool = new Pool({
       );
     `);
 
+    // 🔥 NEW: Unique index to prevent duplicate names in same room
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS unique_active_name_per_room
+      ON room_players (room_id, LOWER(name))
+      WHERE active = TRUE;
+    `);
+
     // Draw pile
     await pool.query(`
       CREATE TABLE IF NOT EXISTS draw_pile (
@@ -148,11 +155,12 @@ const pool = new Pool({
       );
     `);
 
-    console.log("Flip‑to‑6 tables ready.");
+    console.log("Flip‑to‑6 database tables initialized.");
   } catch (err) {
     console.error("DB init error:", err);
   }
 })();
+
 
 /**
  * ============================================================
@@ -1195,6 +1203,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => console.log("Server running on port", PORT));
+
 
 
 

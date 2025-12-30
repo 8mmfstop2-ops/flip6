@@ -1031,9 +1031,6 @@ socket.on("connect", async () => {
 /* ============================================================
    UI EVENTS
 ============================================================ */
-startGameBtn.addEventListener("click", () => {
-  socket.emit("draw-card");
-});
 
 // Draw card
 deckDiv.addEventListener("click", () => {
@@ -1128,6 +1125,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

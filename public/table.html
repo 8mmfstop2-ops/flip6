@@ -1036,18 +1036,17 @@ socket.on("connect", async () => {
 deckDiv.addEventListener("click", () => {
   if (!currentState) return;
 
-  const deckNotStarted = currentState.deckCount === 0;
-
   const isMyTurn =
     currentState.currentPlayerId === playerId &&
     !currentState.roundOver &&
     !currentState.paused &&
     !currentState.pendingActionType;
 
-  if (!isMyTurn && !deckNotStarted) return;
+  if (!isMyTurn) return;
 
   socket.emit("drawCard", { roomCode, playerId });
 });
+
 
 // Stay
 stayButton.addEventListener("click", () => {
@@ -1125,6 +1124,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

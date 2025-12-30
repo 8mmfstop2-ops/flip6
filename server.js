@@ -818,6 +818,9 @@ async function drawCardForPlayer(room, playerId) {
   // Make sure deck exists (first draw will create deck + effectively start the game)
   await ensureDeck(roomId);
 
+   // 🔒 Lock the room once someone actually draws a card 
+   await pool.query( `UPDATE rooms SET locked = TRUE WHERE id = $1 AND locked = FALSE`, [roomId] );
+   
   const value = await popTopCard(roomId);
   if (!value) return; // no cards at all (rare edge case)
 
@@ -998,21 +1001,19 @@ app.post("/api/player/join", async (req, res) => {
       [code]
     );
 
-   let room;
-   
-   if (!roomRes.rows.length) {
-   // Create new room automatically
-   const createRes = await pool.query(
-      `INSERT INTO rooms (code, locked, round_number, round_over, paused)
-      VALUES ($1, FALSE, 1, FALSE, FALSE)
-      RETURNING *`,
-      [code]
-   );
+    let room;
+    if (!roomRes.rows.length) {
+      // Create new room automatically
+      const createRes = await pool.query(
+        `INSERT INTO rooms (code, locked, round_number, round_over, paused)
+         VALUES ($1, FALSE, 1, FALSE, FALSE)
+         RETURNING *`,
+        [code]
+      );
       room = createRes.rows[0];
-   } else {
+    } else {
       room = roomRes.rows[0];
-   }
-
+    }
 
     // CASE‑INSENSITIVE duplicate name check
     const dupRes = await pool.query(
@@ -1024,38 +1025,54 @@ app.post("/api/player/join", async (req, res) => {
       [room.id, cleanName]
     );
 
-    // If name exists AND that player is connected → reject
-    if (dupRes.rows.length > 0 && dupRes.rows[0].connected) {
-      return res.status(400).json({
-        error: "A player by that name is already in the room."
-      });
-    }
-
     let playerId;
 
-    // Create new player
-    const insertRes = await pool.query(
-      `
-      INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
-      VALUES (
-        $1,
-        COALESCE(
-          (SELECT MAX(player_id) + 1 FROM room_players WHERE room_id = $1),
-          1
-        ),
-        $2,
-        COALESCE(
-          (SELECT MAX(order_index) + 1 FROM room_players WHERE room_id = $1),
-          0
-        ),
-        TRUE,
-        FALSE
-      )
-      RETURNING player_id
-      `,
-      [room.id, cleanName]
-    );
-    playerId = insertRes.rows[0].player_id;
+    if (dupRes.rows.length > 0) {
+      const existing = dupRes.rows[0];
+
+      // If already connected → reject
+      if (existing.connected) {
+        return res.status(400).json({
+          error: "A player by that name is already in the room."
+        });
+      }
+
+      // Rejoin: reuse existing playerId
+      playerId = existing.player_id;
+
+    } else {
+      // No existing player with that name
+      // If room is locked → no new players allowed
+      if (room.locked) {
+        return res.status(400).json({
+          error: "This room is locked. Only existing players can rejoin."
+        });
+      }
+
+      // Create new player
+      const insertRes = await pool.query(
+        `
+        INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
+        VALUES (
+          $1,
+          COALESCE(
+            (SELECT MAX(player_id) + 1 FROM room_players WHERE room_id = $1),
+            1
+          ),
+          $2,
+          COALESCE(
+            (SELECT MAX(order_index) + 1 FROM room_players WHERE room_id = $1),
+            0
+          ),
+          TRUE,
+          FALSE
+        )
+        RETURNING player_id
+        `,
+        [room.id, cleanName]
+      );
+      playerId = insertRes.rows[0].player_id;
+    }
 
     // Redirect to game table
     return res.json({
@@ -1070,6 +1087,7 @@ app.post("/api/player/join", async (req, res) => {
     });
   }
 });
+
 
 
 // Serve the playing board
@@ -1110,19 +1128,12 @@ app.get("/api/room/:code/draw-pile", async (req, res) => {
  * SOCKET.IO GAME LOGIC
  * ============================================================
  */
-
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
-  /**
-   * Player joins a room via socket after HTTP login redirect.
-   * This:
-   *  - Associates socket with room_players row
-   *  - Marks player as connected
-   *  - May unpause the room if no one is disconnected
-   *  - Sends full stateUpdate to this socket
-   */
-
+  // -----------------------------
+  // JOIN ROOM
+  // -----------------------------
   socket.on("joinRoom", async ({ roomCode, playerId }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
@@ -1184,25 +1195,293 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", async () => {
+  // -----------------------------
+  // DRAW CARD
+  // -----------------------------
+  socket.on("drawCard", async ({ roomCode, playerId }) => {
     try {
+      const code = String(roomCode || "").trim().toUpperCase();
+
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
+
+      // Get current state to validate turn
+      const state = await getState(room.id);
+      if (!state) return;
+
+      const isMyTurn =
+        state.currentPlayerId === playerId &&
+        !state.roundOver &&
+        !state.paused &&
+        !state.pendingActionType;
+
+      // Allow draw only if it's your turn
+      if (!isMyTurn) return;
+
+      await drawCardForPlayer(room, playerId);
+
+      // After draw, DO NOT auto-advance; player will choose Stay or Pass
+      const newState = await getState(room.id);
+      io.to(code).emit("stateUpdate", newState);
+
+    } catch (err) {
+      console.error("drawCard error:", err);
+    }
+  });
+
+  // -----------------------------
+  // STAY
+  // -----------------------------
+  socket.on("stay", async ({ roomCode, playerId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
+
+      const state = await getState(room.id);
+      if (!state) return;
+
+      const isMyTurn =
+        state.currentPlayerId === playerId &&
+        !state.roundOver &&
+        !state.paused &&
+        !state.pendingActionType;
+
+      if (!isMyTurn) return;
+
+      // Mark stayed
       await pool.query(
         `UPDATE room_players
+         SET stayed = TRUE
+         WHERE id = $1 AND room_id = $2`,
+        [playerId, room.id]
+      );
+
+      // Advance to next player
+      await advanceTurn(room.id);
+
+      const newState = await getState(room.id);
+      io.to(code).emit("stateUpdate", newState);
+
+    } catch (err) {
+      console.error("stay error:", err);
+    }
+  });
+
+  // -----------------------------
+  // PASS (no stay, just next player)
+  // -----------------------------
+  socket.on("pass", async ({ roomCode, playerId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
+
+      const state = await getState(room.id);
+      if (!state) return;
+
+      const isMyTurn =
+        state.currentPlayerId === playerId &&
+        !state.roundOver &&
+        !state.paused &&
+        !state.pendingActionType;
+
+      if (!isMyTurn) return;
+
+      // Do NOT mark stayed, just advance
+      await advanceTurn(room.id);
+
+      const newState = await getState(room.id);
+      io.to(code).emit("stateUpdate", newState);
+
+    } catch (err) {
+      console.error("pass error:", err);
+    }
+  });
+
+  // -----------------------------
+  // END ROUND
+  // -----------------------------
+  socket.on("endRound", async ({ roomCode }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
+
+      const state = await getState(room.id);
+      if (!state || !state.roundOver) return;
+
+      await endRound(room.id);
+
+      const newState = await getState(room.id);
+      io.to(code).emit("stateUpdate", newState);
+
+    } catch (err) {
+      console.error("endRound error:", err);
+    }
+  });
+
+  // -----------------------------
+  // ACTION TARGET (Freeze, Swap, Take 3)
+  // -----------------------------
+  socket.on("actionTarget", async ({ roomCode, playerId, action, targetId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
+
+      const state = await getState(room.id);
+      if (!state) return;
+
+      if (!state.pendingActionType || state.pendingActionActorId !== playerId) {
+        return;
+      }
+
+      // Action-specific logic here. You already have helpers for hands,
+      // draw, discard, etc. Just sketching:
+
+      if (action === "Freeze") {
+        // Target auto-stays
+        await pool.query(
+          `UPDATE room_players
+           SET stayed = TRUE
+           WHERE id = $1 AND room_id = $2`,
+          [targetId, room.id]
+        );
+      }
+
+      if (action === "Swap") {
+        // Swap hands between playerId and targetId
+        await pool.query(
+          `UPDATE player_hands
+           SET player_id = CASE
+             WHEN player_id = $1 THEN $2
+             WHEN player_id = $2 THEN $1
+             ELSE player_id
+           END
+           WHERE room_id = $3 AND player_id IN ($1, $2)`,
+          [playerId, targetId, room.id]
+        );
+      }
+
+      if (action === "Take3") {
+        // Target draws 3 cards
+        for (let i = 0; i < 3; i++) {
+          await drawCardForPlayer(room, targetId);
+        }
+      }
+
+      // Clear pending action
+      await pool.query(
+        `UPDATE rooms
+         SET pending_action_type = NULL,
+             pending_action_actor_id = NULL,
+             pending_action_value = NULL
+         WHERE id = $1`,
+        [room.id]
+      );
+
+      const newState = await getState(room.id);
+      io.to(code).emit("stateUpdate", newState);
+
+    } catch (err) {
+      console.error("actionTarget error:", err);
+    }
+  });
+
+  // -----------------------------
+  // REMOVE PLAYER (admin control)
+  // -----------------------------
+  socket.on("removePlayer", async ({ roomCode, name }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
+      const cleanName = String(name || "").trim();
+
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
+
+      await pool.query(
+        `UPDATE room_players
+         SET active = FALSE
+         WHERE room_id = $1 AND LOWER(name) = LOWER($2)`,
+        [room.id, cleanName]
+      );
+
+      const newState = await getState(room.id);
+      io.to(code).emit("stateUpdate", newState);
+
+    } catch (err) {
+      console.error("removePlayer error:", err);
+    }
+  });
+
+  // -----------------------------
+  // DISCONNECT
+  // -----------------------------
+  socket.on("disconnect", async () => {
+    try {
+      // Mark disconnected and recompute pause
+      const res = await pool.query(
+        `UPDATE room_players
          SET connected = FALSE, socket_id = NULL
-         WHERE socket_id = $1`,
+         WHERE socket_id = $1
+         RETURNING room_id`,
         [socket.id]
       );
+
+      if (res.rows.length > 0) {
+        const roomId = res.rows[0].room_id;
+        await recomputePause(roomId);
+
+        // Send updated state to that room
+        const roomRes = await pool.query(
+          "SELECT code FROM rooms WHERE id = $1",
+          [roomId]
+        );
+        if (roomRes.rows.length) {
+          const code = roomRes.rows[0].code;
+          const newState = await getState(roomId);
+          io.to(code).emit("stateUpdate", newState);
+        }
+      }
     } catch (err) {
       console.error("disconnect cleanup error:", err);
     }
   });
 
-});  
-
-
+});
 
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => console.log("Server running on port", PORT));
+
 
 
 

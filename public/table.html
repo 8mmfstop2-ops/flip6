@@ -695,16 +695,11 @@ function animateCardToSeat(value, seatIndex) {
 function renderDeck(state) {
   deckDiv.innerHTML = "";
 
+   // No deck yet 
   if (state.deckCount === 0) {
     deckDiv.classList.add("placeholder");
     deckCountDiv.textContent = "0 cards";
     return;
-  }
-
-  if (!controlsClosedOnce && state.deckCount > 0) {
-    const controls = document.querySelector("details");
-    if (controls) controls.removeAttribute("open");
-    controlsClosedOnce = true;
   }
 
   deckDiv.classList.remove("placeholder");
@@ -719,15 +714,18 @@ function renderDeck(state) {
     const img = document.createElement("img");
 
     if (i === 0) {
+      // TOP CARD → real back.png
       img.src = "/cards/back.png";
     } else {
-      img.src = "";
-      img.style.background = "#fff";
-      img.style.border = "2px solid #000";
+      // LOWER CARDS → blank silhouette (no border, no white box)
+      img.src = "/cards/back.png";   // use back.png
+      img.style.opacity = "0.15";    // faint silhouette
+      img.style.filter = "brightness(0.4)"; // darker so it looks like depth
     }
 
     cardEl.appendChild(img);
 
+    // Offset each card slightly
     cardEl.style.top = (i * 4) + "px";
     cardEl.style.left = (i * 4) + "px";
 
@@ -1124,6 +1122,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

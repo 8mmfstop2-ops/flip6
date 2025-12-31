@@ -513,6 +513,17 @@ td.discard-cell {
           style="margin-top:15px; width:100%; padding:8px;">Close</button>
 </div>
 
+<div id="second-chance-popup"
+     style="display:none; position:fixed; top:50%; left:50%;
+            transform:translate(-50%, -50%); background:#222;
+            padding:20px; border-radius:10px; z-index:99999;">
+  <p>Use Second Chance?</p>
+  <button id="sc-yes">Yes</button>
+  <button id="sc-no">No</button>
+</div>
+
+
+   
 <!-- ============================================================
      SOCKET.IO + GAME LOGIC
 ============================================================ -->
@@ -1036,6 +1047,12 @@ socket.on("stateUpdate", (state) => {
      hasDrawnThisTurn = false;
    }
 
+
+   if (state.pendingActionType === "SecondChancePrompt" &&
+    state.pendingActionActorId === playerId) {
+  document.getElementById("second-chance-popup").style.display = "block";
+}
+
   document.getElementById("round-display").textContent =
     "Round " + state.roundNumber;
 
@@ -1117,6 +1134,20 @@ endTurnsButton.addEventListener("click", () => {
   socket.emit("endRound", { roomCode });
 });
 
+document.getElementById("sc-yes").onclick = () => {
+  socket.emit("secondChanceResponse", { roomCode, playerId, use: true });
+  document.getElementById("second-chance-popup").style.display = "none";
+};
+
+document.getElementById("sc-no").onclick = () => {
+  socket.emit("secondChanceResponse", { roomCode, playerId, use: false });
+  document.getElementById("second-chance-popup").style.display = "none";
+};
+
+
+
+
+   
 // Test Sounds Popup
 const testSoundsBtn = document.getElementById("test-sounds-btn");
 const soundPopup = document.getElementById("sound-popup");
@@ -1149,6 +1180,9 @@ removeBtn.addEventListener("click", () => {
   removeNameInput.value = "";
 });
 
+
+
+   
 /* ============================================================
    INITIAL STATUS
 ============================================================ */
@@ -1158,6 +1192,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

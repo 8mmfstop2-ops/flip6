@@ -441,10 +441,32 @@ async function advanceTurn(roomId, options = {}) {
 
   // Load room
   const roomRes = await pool.query(
-    `SELECT current_player_id FROM rooms WHERE id = $1`,
+    `SELECT current_player_id, final_round, game_over
+     FROM rooms WHERE id = $1`,
     [roomId]
   );
   const room = roomRes.rows[0];
+
+  // ⭐ If game is already over, stop
+  if (room.game_over) return;
+
+  // ⭐ FINAL ROUND: If final round is active, check if all players are done
+  if (room.final_round) {
+    const state = await getState(roomId);
+
+    const allDone = state.players.every(
+      p => p.stayed || p.round_bust
+    );
+
+    if (allDone) {
+      // ⭐ Mark game over
+      await pool.query(
+        `UPDATE rooms SET game_over = TRUE WHERE id = $1`,
+        [roomId]
+      );
+      return;
+    }
+  }
 
   // If we already set the starting player for the round, do NOT rotate
   if (forceCurrent && room.current_player_id) {
@@ -507,6 +529,7 @@ async function advanceTurn(roomId, options = {}) {
     [players[nextIndex], roomId]
   );
 }
+
 
 /**
  * ============================================================
@@ -582,10 +605,9 @@ async function getNextStartingPlayer(roomId) {
  * END OF ROUND (USES player_id)
  * ============================================================
  */
-
 async function endRound(roomId) {
   const roomRes = await pool.query(
-    "SELECT round_number, current_player_id FROM rooms WHERE id = $1",
+    "SELECT round_number, current_player_id, final_round, game_over FROM rooms WHERE id = $1",
     [roomId]
   );
   const room = roomRes.rows[0];
@@ -655,6 +677,57 @@ async function endRound(roomId) {
     [roomId]
   );
 
+  // ⭐ FINAL ROUND ADDITION — Check if any player exceeded 200
+  const scoreCheck = await pool.query(
+    `SELECT player_id, total_score
+     FROM room_players
+     WHERE room_id = $1`,
+    [roomId]
+  );
+
+  let triggerFinal = false;
+  let triggerPlayer = null;
+
+  for (const row of scoreCheck.rows) {
+    if (row.total_score > 200) {
+      triggerFinal = true;
+      triggerPlayer = row.player_id;
+      break;
+    }
+  }
+
+  if (triggerFinal && !room.final_round) {
+    // ⭐ Mark final round active
+    await pool.query(
+      `UPDATE rooms
+       SET final_round = TRUE,
+           final_round_trigger_player = $1
+       WHERE id = $2`,
+      [triggerPlayer, roomId]
+    );
+  }
+
+  // ⭐ If game_over was set earlier, determine winner
+  if (room.game_over) {
+    const winnerRes = await pool.query(
+      `SELECT player_id, total_score
+       FROM room_players
+       WHERE room_id = $1
+       ORDER BY total_score DESC
+       LIMIT 1`,
+      [roomId]
+    );
+
+    const winner = winnerRes.rows[0];
+
+    await pool.query(
+      `UPDATE rooms SET winner_id = $1 WHERE id = $2`,
+      [winner.player_id, roomId]
+    );
+
+    return; // Game ends here
+  }
+
   await ensureDeck(roomId);
 
   const nextStarter = await getNextStartingPlayer(roomId);
@@ -669,6 +742,8 @@ async function endRound(roomId) {
 
   await advanceTurn(roomId, { forceCurrent: true });
 }
+
+
 
 /**
  * ============================================================
@@ -1504,5 +1579,6 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Server running on port", PORT)
 );
+
 
 

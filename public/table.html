@@ -139,6 +139,13 @@ table.playing-table {
   top: 0;
   left: 0;
 }
+
+.deck-clickable {
+  cursor: pointer;
+}
+   
+   
+   
 #deck.placeholder::before {
   content: "Click to Start";
   display: flex;
@@ -886,13 +893,20 @@ function applyTargetSelection(state) {
    BUTTON ENABLE/DISABLE LOGIC
 ============================================================ */
 function updateButtons(state) {
-  const isMyTurn =
-    state.currentPlayerId === playerId &&
-    !state.roundOver &&
-    !state.paused &&
-    !state.pendingActionType;
+   const isMyTurn =
+     state.currentPlayerId === playerId &&
+     !state.roundOver &&
+     !state.paused &&
+     !state.pendingActionType;
+   
+   if (isMyTurn) {
+     deckDiv.classList.add("deck-clickable");
+   } else {
+     deckDiv.classList.remove("deck-clickable");
+   }
 
-  // NEW: game not started yet (no deck)
+
+  // game not started yet (no deck)
   const gameNotStarted = state.deckCount === 0;
 
   // Deck clickable only on your turn
@@ -1131,6 +1145,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -900,7 +900,9 @@ function updateButtons(state) {
      !state.roundOver &&
      !state.paused &&
      !state.pendingActionType;
-   
+
+   console.log("currentPlayerId:", state.currentPlayerId, "my playerId:", playerId);
+
    if (isMyTurn) {
      deckDiv.classList.add("deck-clickable");
    } else {
@@ -1057,7 +1059,8 @@ socket.on("connect", async () => {
 
 // Draw card
 deckDiv.addEventListener("click", () => {
-  if (!currentState) return;
+   //safety check that prevents the deck click handler from running before the game is ready.
+  if (!currentState) return; 
    
   const isMyTurn =
     currentState.currentPlayerId === playerId &&
@@ -1148,6 +1151,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

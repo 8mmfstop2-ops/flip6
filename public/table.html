@@ -440,10 +440,17 @@ td.discard-cell {
           </td>
 
           <!-- Stay + Pass buttons (vertical layout) -->
-          <td class="stay-cell">
-            <button id="stay-button" class="stay-button">🪬 Stay</button>
-            <button id="pass-button" class="stay-button">⏭️ Pass</button>
-          </td>
+         <td class="stay-cell">
+         
+           <div id="round-display"
+                style="font-size: 1.4em; font-weight: bold; margin-bottom: 10px;">
+             Round 1
+           </div>
+         
+           <button id="stay-button" class="stay-button">🪬 Stay</button>
+           <button id="pass-button" class="stay-button">🡆 Pass</button>
+         </td>
+
 
           <td id="seat6">
             <div class="player-name">Seat 6</div>
@@ -1009,8 +1016,10 @@ function detectSoundAndAnimationEvents(state) {
 socket.on("stateUpdate", (state) => {
   currentState = state;
 
-  detectSoundAndAnimationEvents(state);
+  document.getElementById("round-display").textContent =
+    "Round " + state.roundNumber;
 
+  detectSoundAndAnimationEvents(state);
   renderDeck(state);
   renderDiscard(state);
   renderPlayers(state);
@@ -1122,6 +1131,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

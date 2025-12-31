@@ -320,6 +320,9 @@ td.discard-cell {
   font-size: 14px;
 }
 
+.final-round #table {
+  background-color: white !important;
+}
 
    
 </style>
@@ -919,6 +922,10 @@ function updateButtons(state) {
      deckDiv.classList.remove("deck-clickable");
    }
 
+   if (state.final_round) {
+  statusDiv.textContent = "FINAL ROUND — Everyone gets one last turn.";
+}
+
 
   // game not started yet (no deck)
   const gameNotStarted = state.deckCount === 0;
@@ -1055,6 +1062,12 @@ socket.on("stateUpdate", (state) => {
    if (state.pendingActionType === "SecondChancePrompt" &&
     state.pendingActionActorId === playerId) {
   document.getElementById("second-chance-popup").style.display = "block";
+}
+
+   if (state.final_round) {
+  document.body.classList.add("final-round");
+} else {
+  document.body.classList.remove("final-round");
 }
 
   document.getElementById("round-display").textContent =
@@ -1196,6 +1209,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

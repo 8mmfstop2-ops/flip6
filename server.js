@@ -106,7 +106,7 @@ const pool = new Pool({
       );
     `);
 
-    // 🔥 NEW: Unique index to prevent duplicate names in same room
+    // Unique active name per room (case-insensitive)
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS unique_active_name_per_room
       ON room_players (room_id, LOWER(name))
@@ -133,7 +133,7 @@ const pool = new Pool({
       );
     `);
 
-    // Player hands
+    // Player hands (uses player_id, NOT row id)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS player_hands (
         id SERIAL PRIMARY KEY,
@@ -144,7 +144,7 @@ const pool = new Pool({
       );
     `);
 
-    // Round scores
+    // Round scores (uses player_id)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS round_scores (
         id SERIAL PRIMARY KEY,
@@ -160,7 +160,6 @@ const pool = new Pool({
     console.error("DB init error:", err);
   }
 })();
-
 
 /**
  * ============================================================
@@ -198,7 +197,9 @@ function forceStreak(deck, length) {
 
     if (!streak) {
       const targetValue = deck[i].value;
-      const idx = deck.findIndex((c, idx2) => idx2 >= i + length && c.value === targetValue);
+      const idx = deck.findIndex(
+        (c, idx2) => idx2 >= i + length && c.value === targetValue
+      );
 
       if (idx !== -1) {
         [deck[i + length - 1], deck[idx]] = [deck[idx], deck[i + length - 1]];
@@ -215,7 +216,6 @@ function forceStreak(deck, length) {
  * ============================================================
  */
 
-// Create zones based on deck size (percentages)
 function makeZones(deckSize) {
   return [
     [Math.floor(deckSize * 0.10), Math.floor(deckSize * 0.30)],
@@ -225,7 +225,6 @@ function makeZones(deckSize) {
   ];
 }
 
-// Insert action cards into adaptive zones
 function distributeActionsAdaptive(result, actionCards) {
   const deckSize = result.length;
   const zones = makeZones(deckSize);
@@ -238,14 +237,13 @@ function distributeActionsAdaptive(result, actionCards) {
     const [minPos, maxPos] = zones[z];
     if (minPos >= maxPos) continue; // tiny deck safety
 
-    // Insert 1–3 cards (capped by remaining)
     const count = Math.min(
       Math.floor(Math.random() * 3) + 1,
       actionCards.length - actionIndex
     );
 
-    // Random insertion point inside the zone
-    const insertPos = Math.floor(Math.random() * (maxPos - minPos + 1)) + minPos;
+    const insertPos =
+      Math.floor(Math.random() * (maxPos - minPos + 1)) + minPos;
 
     for (let i = 0; i < count; i++) {
       result.splice(insertPos, 0, actionCards[actionIndex++]);
@@ -265,33 +263,23 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
   const numberCards = [];
   const actionCards = [];
 
-  // Split deck
   for (const card of deck) {
     if (isAction(card.value)) actionCards.push(card);
     else numberCards.push(card);
   }
 
-  // Shuffle numeric cards
   fisherYates(numberCards);
-
-  // Force streaks
   streakLengths.forEach(len => forceStreak(numberCards, len));
 
-  // Shuffle action cards
   fisherYates(actionCards);
 
-  // Use up to 14 action cards (or fewer if deck is small)
   const actionsToUse = actionCards.slice(0, 14);
 
-  // Start with numeric backbone
   let result = [...numberCards];
-
-  // Distribute action cards adaptively
   result = distributeActionsAdaptive(result, actionsToUse);
 
   return result;
 }
-
 
 /**
  * ============================================================
@@ -299,13 +287,12 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
  * ============================================================
  */
 
-// Ensure a deck exists for a room (creates/shuffles if empty)
 async function ensureDeck(roomId) {
   const check = await pool.query(
     "SELECT COUNT(*) FROM draw_pile WHERE room_id = $1",
     [roomId]
   );
-  if (parseInt(check.rows[0].count, 10) > 0) return; // already have a deck
+  if (parseInt(check.rows[0].count, 10) > 0) return;
 
   const types = await pool.query(
     "SELECT value, count FROM card_types ORDER BY value"
@@ -347,7 +334,6 @@ async function popTopCard(roomId) {
     );
     const old = d.rows.map(r => ({ value: r.value }));
     if (!old.length) {
-      // No cards anywhere (edge case). Return null.
       return null;
     }
 
@@ -373,7 +359,7 @@ async function popTopCard(roomId) {
   return card.value;
 }
 
-// Add card to player's hand
+// Add card to player's hand (uses player_id)
 async function addToHand(roomId, playerId, value) {
   await pool.query(
     `INSERT INTO player_hands (room_id, player_id, position, value)
@@ -392,7 +378,9 @@ async function removeFromHand(roomId, playerId, value) {
     [roomId, playerId, value]
   );
   if (card.rows.length) {
-    await pool.query("DELETE FROM player_hands WHERE id = $1", [card.rows[0].id]);
+    await pool.query("DELETE FROM player_hands WHERE id = $1", [
+      card.rows[0].id
+    ]);
   }
 }
 
@@ -429,8 +417,6 @@ async function playerHasSecondChance(roomId, playerId) {
  * ============================================================
  */
 
-// After any connect/disconnect, recompute paused state:
-// If ANY active player is disconnected → paused = TRUE
 async function recomputePause(roomId) {
   const res = await pool.query(
     `SELECT connected FROM room_players
@@ -446,10 +432,10 @@ async function recomputePause(roomId) {
 
 /**
  * ============================================================
- * TURN ORDER
+ * TURN ORDER (USES player_id EVERYWHERE)
  * ============================================================
  */
-// Advance to next active + not stayed player; if none, round_over = TRUE
+
 async function advanceTurn(roomId, options = {}) {
   const { forceCurrent = false } = options;
 
@@ -465,8 +451,7 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Load active, not-stayed players in turn order
-  // use player_id instead of id
+  // Load active, not-stayed players in turn order (using player_id)
   const playersRes = await pool.query(
     `SELECT player_id, stayed, round_bust
      FROM room_players
@@ -475,9 +460,10 @@ async function advanceTurn(roomId, options = {}) {
     [roomId]
   );
 
-  const candidates = playersRes.rows.filter(p => !p.stayed && !p.round_bust);
+  const candidates = playersRes.rows.filter(
+    p => !p.stayed && !p.round_bust
+  );
 
-  // turn order uses player_id
   const players = candidates.map(p => p.player_id);
 
   // If no candidates left, mark round over and stop
@@ -501,7 +487,7 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Find current player index
+  // Find current player index (by player_id)
   const currentIdx = players.indexOf(room.current_player_id);
 
   // If current player not eligible or not found, reset to first
@@ -522,17 +508,12 @@ async function advanceTurn(roomId, options = {}) {
   );
 }
 
-
-
 /**
  * ============================================================
- * SCORING
+ * SCORING (USES player_id)
  * ============================================================
  */
 
-// Compute score from a player's hand, considering 2x, 4+, 5+, 6‑
-// Note: bust rule is handled separately via round_bust flag
-// NOTE: You can later extend this to add the "6 cards in hand = +15" bonus.
 async function computeScore(roomId, playerId) {
   const res = await pool.query(
     `SELECT value FROM player_hands
@@ -563,16 +544,19 @@ async function computeScore(roomId, playerId) {
   return score * mult;
 }
 
-//Get next round player
+/**
+ * ============================================================
+ * NEXT ROUND STARTER (USES player_id)
+ * ============================================================
+ */
+
 async function getNextStartingPlayer(roomId) {
-  // Load room to get the last round starter (stored as player_id)
   const roomRes = await pool.query(
     `SELECT round_starter_id FROM rooms WHERE id = $1`,
     [roomId]
   );
   const lastStarterId = roomRes.rows[0]?.round_starter_id || null;
 
-  // Load active players in seat/turn order, using player_id
   const playersRes = await pool.query(
     `SELECT player_id
      FROM room_players
@@ -582,27 +566,24 @@ async function getNextStartingPlayer(roomId) {
   );
 
   const players = playersRes.rows.map(r => r.player_id);
-
   if (players.length === 0) return null;
 
-  // If no last starter, default to first player
   if (!lastStarterId) return players[0];
 
   const index = players.indexOf(lastStarterId);
-
-  // If last starter not found (e.g. removed), default to first
   if (index === -1) return players[0];
 
-  // Rotate to next player (loop)
   const nextIndex = (index + 1) % players.length;
   return players[nextIndex];
 }
 
+/**
+ * ============================================================
+ * END OF ROUND (USES player_id)
+ * ============================================================
+ */
 
-
-// End of round: compute scores, move all cards to discard, reset round state
 async function endRound(roomId) {
-  // Get current round number
   const roomRes = await pool.query(
     "SELECT round_number, current_player_id FROM rooms WHERE id = $1",
     [roomId]
@@ -610,7 +591,6 @@ async function endRound(roomId) {
   const room = roomRes.rows[0];
   const round = room.round_number;
 
-  // FIX: use player_id instead of id
   const playersRes = await pool.query(
     `SELECT player_id, round_bust
      FROM room_players
@@ -619,15 +599,13 @@ async function endRound(roomId) {
     [roomId]
   );
 
-  // Score each player
   for (const p of playersRes.rows) {
-    const pid = p.player_id; // FIXED
+    const pid = p.player_id;
     let score = 0;
 
     if (!p.round_bust) {
       score = await computeScore(roomId, pid);
 
-      // 6-card bonus
       const countRes = await pool.query(
         `SELECT COUNT(*) FROM player_hands
          WHERE room_id = $1 AND player_id = $2`,
@@ -639,20 +617,17 @@ async function endRound(roomId) {
       }
     }
 
-    // Insert round score
     await pool.query(
       `INSERT INTO round_scores (room_id, player_id, round_number, score)
        VALUES ($1, $2, $3, $4)`,
       [roomId, pid, round, score]
     );
 
-    // Update total score
     await pool.query(
       "UPDATE room_players SET total_score = total_score + $1 WHERE player_id = $2 AND room_id = $3",
       [score, pid, roomId]
     );
 
-    // Move cards to discard
     const hand = await pool.query(
       "SELECT value FROM player_hands WHERE room_id = $1 AND player_id = $2",
       [roomId, pid]
@@ -662,16 +637,13 @@ async function endRound(roomId) {
     }
   }
 
-  // Clear all hands
   await pool.query("DELETE FROM player_hands WHERE room_id = $1", [roomId]);
 
-  // Reset stayed + bust flags
   await pool.query(
     "UPDATE room_players SET stayed = FALSE, round_bust = FALSE WHERE room_id = $1",
     [roomId]
   );
 
-  // Advance round number and reset round state
   await pool.query(
     `UPDATE rooms
      SET round_number = round_number + 1,
@@ -683,13 +655,10 @@ async function endRound(roomId) {
     [roomId]
   );
 
-  // Ensure new deck for next round
   await ensureDeck(roomId);
 
-  // Determine next round's starting player
   const nextStarter = await getNextStartingPlayer(roomId);
 
-  // Set next starter
   await pool.query(
     `UPDATE rooms
      SET current_player_id = $1,
@@ -698,14 +667,12 @@ async function endRound(roomId) {
     [nextStarter, roomId]
   );
 
-  // Begin next round with the chosen starter
   await advanceTurn(roomId, { forceCurrent: true });
 }
 
-
 /**
  * ============================================================
- * STATE PACKING FOR CLIENT
+ * STATE PACKING FOR CLIENT (player_id AS id)
  * ============================================================
  */
 
@@ -717,7 +684,6 @@ async function getState(roomId) {
   if (!roomRes.rows.length) return null;
   const room = roomRes.rows[0];
 
-  // FIX: send player_id AS id so client uses correct ID
   const playersRes = await pool.query(
     `SELECT player_id AS id, name, order_index, active, stayed, total_score, connected, round_bust
      FROM room_players
@@ -786,54 +752,48 @@ async function getState(roomId) {
     deckCount: parseInt(deckCountRes.rows[0].count, 10),
     discardCount: parseInt(discardCountRes.rows[0].count, 10),
 
-    topDiscardCard: topDiscardRes.rows.length ? topDiscardRes.rows[0].value : null,
+    topDiscardCard: topDiscardRes.rows.length
+      ? topDiscardRes.rows[0].value
+      : null,
+
     topDrawCards: topCardsRes.rows.map(r => r.value),
 
     disconnectedPlayers
   };
 }
 
-
-
-
 /**
  * ============================================================
- * DRAW CARD LOGIC WITH FULL RULES
+ * DRAW CARD LOGIC WITH FULL RULES (player_id)
  * ============================================================
- *
- * IMPORTANT:
- * - This function ONLY draws the card and sets up pending actions/bust.
- * - It does NOT advance the turn. Caller decides whether/when to advance.
- * - It respects Second Chance and Bust rules.
  */
 
 async function drawCardForPlayer(room, playerId) {
   const roomId = room.id;
 
-  // If there's a pending action, do not allow new draw
   if (room.pending_action_type) {
-    return; // should not happen if caller checks
+    return;
   }
 
-  // Make sure deck exists (first draw will create deck + effectively start the game)
   await ensureDeck(roomId);
 
-   // 🔒 Lock the room once someone actually draws a card 
-   await pool.query( `UPDATE rooms SET locked = TRUE WHERE id = $1 AND locked = FALSE`, [roomId] );
-   
+  // Lock room on first draw
+  await pool.query(
+    `UPDATE rooms SET locked = TRUE WHERE id = $1 AND locked = FALSE`,
+    [roomId]
+  );
+
   const value = await popTopCard(roomId);
-  if (!value) return; // no cards at all (rare edge case)
+  if (!value) return;
 
   const isNumber = /^(?:[0-9]|1[0-2])$/.test(value);
   const scoring = ["2x", "4+", "5+", "6-"];
-  const instant = ["Freeze", "Swap", "Take 3"];
+  const instant = ["Freeze", "Swap", "Take 3", "Take3"];
 
-  // 1) Numeric card
+  // 1) Numeric
   if (isNumber) {
-    // Add to hand
     await addToHand(roomId, playerId, value);
 
-    // Check duplicate (after adding)
     const dupRes = await pool.query(
       `SELECT COUNT(*) FROM player_hands
        WHERE room_id = $1 AND player_id = $2 AND value = $3`,
@@ -843,11 +803,9 @@ async function drawCardForPlayer(room, playerId) {
     const isTrueDuplicate = count > 1;
 
     if (isTrueDuplicate) {
-      // If duplicate, check Second Chance
       const hasSecondChance = await playerHasSecondChance(roomId, playerId);
 
       if (hasSecondChance) {
-        // Optional use: set pending action SecondChance
         await pool.query(
           `UPDATE rooms
            SET pending_action_type = 'SecondChance',
@@ -858,43 +816,40 @@ async function drawCardForPlayer(room, playerId) {
         );
         return;
       } else {
-        // Bust: mark this player as bust + stayed
+        // Bust: mark this player as bust + stayed (by player_id)
         await pool.query(
           `UPDATE room_players
            SET stayed = TRUE, round_bust = TRUE
-           WHERE id = $1 AND room_id = $2`,
+           WHERE player_id = $1 AND room_id = $2`,
           [playerId, roomId]
         );
         return;
       }
     }
 
-    // Normal numeric draw; nothing else special
     return;
   }
 
-  // 2) Scoring cards (2x, 4+, 5+, 6‑) — always go to hand
+  // 2) Scoring cards
   if (scoring.includes(value)) {
     await addToHand(roomId, playerId, value);
     return;
   }
 
-  // 3) Second Chance card itself — goes to hand
+  // 3) Second Chance
   if (value === "Second Chance") {
     await addToHand(roomId, playerId, value);
     return;
   }
 
-  // 4) Action cards: Freeze, Swap, Take 3
+  // 4) Action cards
   if (instant.includes(value)) {
-    // Action card must appear in hand until resolved
     await addToHand(roomId, playerId, value);
 
-    // Set pending action so client enters target selection mode
     let actionType;
     if (value === "Freeze") actionType = "Freeze";
     if (value === "Swap") actionType = "Swap";
-    if (value === "Take 3") actionType = "Take3";
+    if (value === "Take 3" || value === "Take3") actionType = "Take3";
 
     await pool.query(
       `UPDATE rooms
@@ -908,7 +863,6 @@ async function drawCardForPlayer(room, playerId) {
     return;
   }
 
-  // Fallback: if unknown, just discard
   await addToDiscard(roomId, value);
 }
 
@@ -918,7 +872,7 @@ async function drawCardForPlayer(room, playerId) {
  * ============================================================
  */
 
-// Initialize card_types with values/filenames/counts (run once when setting up)
+// Initialize card_types with values/filenames/counts (run once)
 app.post("/api/init-deck", async (req, res) => {
   try {
     const cardData = [
@@ -935,7 +889,6 @@ app.post("/api/init-deck", async (req, res) => {
       ["10", "10.png", 10],
       ["11", "11.png", 11],
       ["12", "12.png", 12],
-      // Action cards (filenames/examples, adjust to your actual PNG names)
       ["2x", "action-2x.png", 1],
       ["4+", "action-4+.png", 2],
       ["5+", "action-5+.png", 2],
@@ -954,14 +907,17 @@ app.post("/api/init-deck", async (req, res) => {
       );
     }
 
-    res.json({ success: true, message: "Flip‑to‑6 deck definitions initialized." });
+    res.json({
+      success: true,
+      message: "Flip‑to‑6 deck definitions initialized."
+    });
   } catch (err) {
     console.error("init-deck error:", err);
     res.status(500).json({ success: false, error: "Initialization failed." });
   }
 });
 
-// Card metadata for PNGs (value -> filename)
+// Card metadata for client
 app.get("/api/cards/meta", async (req, res) => {
   try {
     const result = await pool.query(
@@ -970,20 +926,14 @@ app.get("/api/cards/meta", async (req, res) => {
     res.json({ success: true, cards: result.rows });
   } catch (err) {
     console.error("cards/meta error:", err);
-    res.status(500).json({ success: false, error: "Failed to load card metadata" });
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to load card metadata" });
   }
 });
 
 /**
- * Player join / rejoin:
- *
- * - If room not exist → create
- * - If room locked:
- *     * If name exists in room_players → rejoin (get same playerId)
- *     * Else → error: room locked
- * - If room unlocked:
- *     * If name exists → rejoin
- *     * Else → join as new player (max 6)
+ * Player join / rejoin
  */
 app.post("/api/player/join", async (req, res) => {
   try {
@@ -992,10 +942,11 @@ app.post("/api/player/join", async (req, res) => {
     const cleanName = String(name || "").trim();
 
     if (!cleanName || !code) {
-      return res.status(400).json({ error: "Missing name or room code." });
+      return res
+        .status(400)
+        .json({ error: "Missing name or room code." });
     }
 
-    // Load room
     const roomRes = await pool.query(
       "SELECT * FROM rooms WHERE code = $1",
       [code]
@@ -1003,7 +954,6 @@ app.post("/api/player/join", async (req, res) => {
 
     let room;
     if (!roomRes.rows.length) {
-      // Create new room automatically
       const createRes = await pool.query(
         `INSERT INTO rooms (code, locked, round_number, round_over, paused)
          VALUES ($1, FALSE, 1, FALSE, FALSE)
@@ -1015,7 +965,6 @@ app.post("/api/player/join", async (req, res) => {
       room = roomRes.rows[0];
     }
 
-    // CASE‑INSENSITIVE duplicate name check
     const dupRes = await pool.query(
       `SELECT player_id, connected
        FROM room_players
@@ -1030,26 +979,20 @@ app.post("/api/player/join", async (req, res) => {
     if (dupRes.rows.length > 0) {
       const existing = dupRes.rows[0];
 
-      // If already connected → reject
       if (existing.connected) {
         return res.status(400).json({
           error: "A player by that name is already in the room."
         });
       }
 
-      // Rejoin: reuse existing playerId
       playerId = existing.player_id;
-
     } else {
-      // No existing player with that name
-      // If room is locked → no new players allowed
       if (room.locked) {
         return res.status(400).json({
           error: "This room is locked. Only existing players can rejoin."
         });
       }
 
-      // Create new player
       const insertRes = await pool.query(
         `
         INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
@@ -1074,28 +1017,23 @@ app.post("/api/player/join", async (req, res) => {
       playerId = insertRes.rows[0].player_id;
     }
 
-    // Redirect to game table
     return res.json({
       redirect: `/room/${code}?playerId=${playerId}`
     });
-
   } catch (err) {
     console.error("JOIN ERROR:", err);
-
     res.status(500).json({
       error: "JOIN ERROR: " + err.message
     });
   }
 });
 
-
-
-// Serve the playing board
+// Serve game table
 app.get("/room/:code", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "table.html"));
 });
 
-// For debugging deck contents (e.g., cards.html)
+// Debug route: view draw pile
 app.get("/api/room/:code/draw-pile", async (req, res) => {
   try {
     const { code } = req.params;
@@ -1128,17 +1066,16 @@ app.get("/api/room/:code/draw-pile", async (req, res) => {
  * SOCKET.IO GAME LOGIC
  * ============================================================
  */
-io.on("connection", (socket) => {
+io.on("connection", socket => {
   console.log("Client connected:", socket.id);
 
-  // -----------------------------
-  // JOIN ROOM
-  // -----------------------------
+  /**
+   * JOIN ROOM
+   */
   socket.on("joinRoom", async ({ roomCode, playerId }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
 
-      // Load room
       const roomRes = await pool.query(
         "SELECT * FROM rooms WHERE code = $1",
         [code]
@@ -1146,7 +1083,6 @@ io.on("connection", (socket) => {
       if (!roomRes.rows.length) return;
       const room = roomRes.rows[0];
 
-      // Load player
       const playerRes = await pool.query(
         `SELECT * FROM room_players
          WHERE player_id = $1 AND room_id = $2 AND active = TRUE`,
@@ -1156,7 +1092,6 @@ io.on("connection", (socket) => {
 
       const player = playerRes.rows[0];
 
-      // Duplicate login check
       if (player.connected && player.socket_id && player.socket_id !== socket.id) {
         socket.emit("joinError", {
           message: "This player is already signed in on another device."
@@ -1164,7 +1099,6 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Mark player as connected
       await pool.query(
         `UPDATE room_players
          SET socket_id = $1, connected = TRUE
@@ -1173,10 +1107,8 @@ io.on("connection", (socket) => {
       );
 
       await recomputePause(room.id);
-
       socket.join(code);
 
-      // If no current player (new round), pick the first
       const freshRoomRes = await pool.query(
         "SELECT * FROM rooms WHERE id = $1",
         [room.id]
@@ -1189,15 +1121,14 @@ io.on("connection", (socket) => {
 
       const state = await getState(room.id);
       io.to(code).emit("stateUpdate", state);
-
     } catch (err) {
       console.error("joinRoom error:", err);
     }
   });
 
-  // -----------------------------
-  // DRAW CARD
-  // -----------------------------
+  /**
+   * DRAW CARD
+   */
   socket.on("drawCard", async ({ roomCode, playerId }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
@@ -1209,7 +1140,6 @@ io.on("connection", (socket) => {
       if (!roomRes.rows.length) return;
       const room = roomRes.rows[0];
 
-      // Get current state to validate turn
       const state = await getState(room.id);
       if (!state) return;
 
@@ -1219,23 +1149,20 @@ io.on("connection", (socket) => {
         !state.paused &&
         !state.pendingActionType;
 
-      // Allow draw only if it's your turn
       if (!isMyTurn) return;
 
       await drawCardForPlayer(room, playerId);
 
-      // After draw, DO NOT auto-advance; player will choose Stay or Pass
       const newState = await getState(room.id);
       io.to(code).emit("stateUpdate", newState);
-
     } catch (err) {
       console.error("drawCard error:", err);
     }
   });
 
-  // -----------------------------
-  // STAY
-  // -----------------------------
+  /**
+   * STAY
+   */
   socket.on("stay", async ({ roomCode, playerId }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
@@ -1258,28 +1185,25 @@ io.on("connection", (socket) => {
 
       if (!isMyTurn) return;
 
-      // Mark stayed
       await pool.query(
         `UPDATE room_players
          SET stayed = TRUE
-         WHERE id = $1 AND room_id = $2`,
+         WHERE player_id = $1 AND room_id = $2`,
         [playerId, room.id]
       );
 
-      // Advance to next player
       await advanceTurn(room.id);
 
       const newState = await getState(room.id);
       io.to(code).emit("stateUpdate", newState);
-
     } catch (err) {
       console.error("stay error:", err);
     }
   });
 
-  // -----------------------------
-  // PASS (no stay, just next player)
-  // -----------------------------
+  /**
+   * PASS
+   */
   socket.on("pass", async ({ roomCode, playerId }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
@@ -1302,20 +1226,18 @@ io.on("connection", (socket) => {
 
       if (!isMyTurn) return;
 
-      // Do NOT mark stayed, just advance
       await advanceTurn(room.id);
 
       const newState = await getState(room.id);
       io.to(code).emit("stateUpdate", newState);
-
     } catch (err) {
       console.error("pass error:", err);
     }
   });
 
-  // -----------------------------
-  // END ROUND
-  // -----------------------------
+  /**
+   * END ROUND
+   */
   socket.on("endRound", async ({ roomCode }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
@@ -1334,15 +1256,14 @@ io.on("connection", (socket) => {
 
       const newState = await getState(room.id);
       io.to(code).emit("stateUpdate", newState);
-
     } catch (err) {
       console.error("endRound error:", err);
     }
   });
 
-  // -----------------------------
-  // ACTION TARGET (Freeze, Swap, Take 3)
-  // -----------------------------
+  /**
+   * ACTION TARGET (Freeze, Swap, Take3)
+   */
   socket.on("actionTarget", async ({ roomCode, playerId, action, targetId }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
@@ -1361,21 +1282,16 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Action-specific logic here. You already have helpers for hands,
-      // draw, discard, etc. Just sketching:
-
       if (action === "Freeze") {
-        // Target auto-stays
         await pool.query(
           `UPDATE room_players
            SET stayed = TRUE
-           WHERE id = $1 AND room_id = $2`,
+           WHERE player_id = $1 AND room_id = $2`,
           [targetId, room.id]
         );
       }
 
       if (action === "Swap") {
-        // Swap hands between playerId and targetId
         await pool.query(
           `UPDATE player_hands
            SET player_id = CASE
@@ -1389,17 +1305,14 @@ io.on("connection", (socket) => {
       }
 
       if (action === "Take3") {
-        // Target draws 3 cards
         for (let i = 0; i < 3; i++) {
           await drawCardForPlayer(room, targetId);
         }
       }
-      
-      // remove action card from hand and discard it
+
       await removeFromHand(room.id, playerId, state.pendingActionValue);
       await addToDiscard(room.id, state.pendingActionValue);
-      
-      // Clear pending action
+
       await pool.query(
         `UPDATE rooms
          SET pending_action_type = NULL,
@@ -1411,15 +1324,14 @@ io.on("connection", (socket) => {
 
       const newState = await getState(room.id);
       io.to(code).emit("stateUpdate", newState);
-
     } catch (err) {
       console.error("actionTarget error:", err);
     }
   });
 
-  // -----------------------------
-  // REMOVE PLAYER (admin control)
-  // -----------------------------
+  /**
+   * REMOVE PLAYER
+   */
   socket.on("removePlayer", async ({ roomCode, name }) => {
     try {
       const code = String(roomCode || "").trim().toUpperCase();
@@ -1441,18 +1353,16 @@ io.on("connection", (socket) => {
 
       const newState = await getState(room.id);
       io.to(code).emit("stateUpdate", newState);
-
     } catch (err) {
       console.error("removePlayer error:", err);
     }
   });
 
-  // -----------------------------
-  // DISCONNECT
-  // -----------------------------
+  /**
+   * DISCONNECT
+   */
   socket.on("disconnect", async () => {
     try {
-      // Mark disconnected and recompute pause
       const res = await pool.query(
         `UPDATE room_players
          SET connected = FALSE, socket_id = NULL
@@ -1465,7 +1375,6 @@ io.on("connection", (socket) => {
         const roomId = res.rows[0].room_id;
         await recomputePause(roomId);
 
-        // Send updated state to that room
         const roomRes = await pool.query(
           "SELECT code FROM rooms WHERE id = $1",
           [roomId]
@@ -1480,17 +1389,14 @@ io.on("connection", (socket) => {
       console.error("disconnect cleanup error:", err);
     }
   });
-
 });
 
-const PORT = process.env.PORT || 3000; 
-server.listen(PORT, () => console.log("Server running on port", PORT));
-
-
-
-
-
-
-
-
-
+/**
+ * ============================================================
+ * SERVER START
+ * ============================================================
+ */
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () =>
+  console.log("Server running on port", PORT)
+);

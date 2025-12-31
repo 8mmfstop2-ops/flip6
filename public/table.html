@@ -357,6 +357,9 @@ td.discard-cell {
 ============================================================ -->
 <details open>
   <summary>Playing Table</summary>
+
+  <div id="status"></div>
+   
   <div>
     <table class="playing-table">
       <colgroup>
@@ -476,7 +479,6 @@ td.discard-cell {
     </table>
   </div>
 
-  <div id="status"></div>
 </details>
 
 <!-- ============================================================
@@ -1056,15 +1058,16 @@ socket.on("connect", async () => {
 // Draw card
 deckDiv.addEventListener("click", () => {
   if (!currentState) return;
-
+   
   const isMyTurn =
     currentState.currentPlayerId === playerId &&
     !currentState.roundOver &&
     !currentState.paused &&
     !currentState.pendingActionType;
 
+   statusDiv.textContent = `Player ${playerId} clicked the deck`;
+   
   if (!isMyTurn) return;
-
   socket.emit("drawCard", { roomCode, playerId });
 });
 
@@ -1145,6 +1148,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

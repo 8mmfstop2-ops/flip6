@@ -767,11 +767,20 @@ async function getState(roomId) {
  * DRAW CARD LOGIC WITH FULL RULES (player_id)
  * ============================================================
  */
-
 async function drawCardForPlayer(room, playerId) {
   const roomId = room.id;
 
-  if (room.pending_action_type) {
+  // ⭐ FIX: Always reload the latest room state.
+  // The "room" object passed into this function is often stale.
+  const freshRoomRes = await pool.query(
+    "SELECT pending_action_type FROM rooms WHERE id = $1",
+    [roomId]
+  );
+  const freshRoom = freshRoomRes.rows[0];
+
+  // If ANY pending action exists (Freeze, Swap, Take3, SecondChancePrompt, etc.)
+  // the player is NOT allowed to draw.
+  if (freshRoom.pending_action_type) {
     return;
   }
 
@@ -790,7 +799,9 @@ async function drawCardForPlayer(room, playerId) {
   const scoring = ["2x", "4+", "5+", "6-"];
   const instant = ["Freeze", "Swap", "Take 3", "Take3"];
 
+  // ============================================================
   // 1) Numeric
+  // ============================================================
   if (isNumber) {
     await addToHand(roomId, playerId, value);
 
@@ -805,18 +816,18 @@ async function drawCardForPlayer(room, playerId) {
     if (isTrueDuplicate) {
       const hasSecondChance = await playerHasSecondChance(roomId, playerId);
 
-   if (hasSecondChance) {
-     // prompt instead of target selection
-     await pool.query(
-       `UPDATE rooms
-        SET pending_action_type = 'SecondChancePrompt',
-            pending_action_actor_id = $1,
-            pending_action_value = $2
-        WHERE id = $3`,
-       [playerId, value, roomId]
-     );
-     return;
-   } else {
+      if (hasSecondChance) {
+        // ⭐ FIX: Second Chance should prompt YES/NO, not target selection
+        await pool.query(
+          `UPDATE rooms
+           SET pending_action_type = 'SecondChancePrompt',
+               pending_action_actor_id = $1,
+               pending_action_value = $2
+           WHERE id = $3`,
+          [playerId, value, roomId]
+        );
+        return;
+      } else {
         // Bust: mark this player as bust + stayed (by player_id)
         await pool.query(
           `UPDATE room_players
@@ -831,19 +842,25 @@ async function drawCardForPlayer(room, playerId) {
     return;
   }
 
+  // ============================================================
   // 2) Scoring cards
+  // ============================================================
   if (scoring.includes(value)) {
     await addToHand(roomId, playerId, value);
     return;
   }
 
-  // 3) Second Chance
+  // ============================================================
+  // 3) Second Chance card (normal draw)
+  // ============================================================
   if (value === "Second Chance") {
     await addToHand(roomId, playerId, value);
     return;
   }
 
-  // 4) Action cards
+  // ============================================================
+  // 4) Action cards (Freeze, Swap, Take 3)
+  // ============================================================
   if (instant.includes(value)) {
     await addToHand(roomId, playerId, value);
 
@@ -864,6 +881,9 @@ async function drawCardForPlayer(room, playerId) {
     return;
   }
 
+  // ============================================================
+  // 5) Anything else → discard
+  // ============================================================
   await addToDiscard(roomId, value);
 }
 
@@ -1161,80 +1181,110 @@ io.on("connection", socket => {
     }
   });
 
-  /**
-   * STAY
-   */
-  socket.on("stay", async ({ roomCode, playerId }) => {
-    try {
-      const code = String(roomCode || "").trim().toUpperCase();
 
-      const roomRes = await pool.query(
-        "SELECT * FROM rooms WHERE code = $1",
-        [code]
-      );
-      if (!roomRes.rows.length) return;
-      const room = roomRes.rows[0];
 
-      const state = await getState(room.id);
-      if (!state) return;
+/**
+ * STAY
+ */
+socket.on("stay", async ({ roomCode, playerId }) => {
+  try {
+    const code = String(roomCode || "").trim().toUpperCase();
 
-      const isMyTurn =
-        state.currentPlayerId === playerId &&
-        !state.roundOver &&
-        !state.paused &&
-        !state.pendingActionType;
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
+    if (!roomRes.rows.length) return;
+    const room = roomRes.rows[0];
 
-      if (!isMyTurn) return;
+    const state = await getState(room.id);
+    if (!state) return;
 
-      await pool.query(
-        `UPDATE room_players
-         SET stayed = TRUE
-         WHERE player_id = $1 AND room_id = $2`,
-        [playerId, room.id]
-      );
+    const isMyTurn =
+      state.currentPlayerId === playerId &&
+      !state.roundOver &&
+      !state.paused &&
+      !state.pendingActionType;
 
-      await advanceTurn(room.id);
+    if (!isMyTurn) return;
 
-      const newState = await getState(room.id);
-      io.to(code).emit("stateUpdate", newState);
-    } catch (err) {
-      console.error("stay error:", err);
-    }
-  });
+    //  Clear any pending action (including "DREW" or SecondChancePrompt)
+    // If this is not cleared, advanceTurn() will NOT rotate properly.
+    await pool.query(
+      `UPDATE rooms
+       SET pending_action_type = NULL,
+           pending_action_actor_id = NULL,
+           pending_action_value = NULL
+       WHERE id = $1`,
+      [room.id]
+    );
 
-  /**
-   * PASS
-   */
-  socket.on("pass", async ({ roomCode, playerId }) => {
-    try {
-      const code = String(roomCode || "").trim().toUpperCase();
+    // Mark player as stayed
+    await pool.query(
+      `UPDATE room_players
+       SET stayed = TRUE
+       WHERE player_id = $1 AND room_id = $2`,
+      [playerId, room.id]
+    );
 
-      const roomRes = await pool.query(
-        "SELECT * FROM rooms WHERE code = $1",
-        [code]
-      );
-      if (!roomRes.rows.length) return;
-      const room = roomRes.rows[0];
+    // Advance to next player
+    await advanceTurn(room.id);
 
-      const state = await getState(room.id);
-      if (!state) return;
+    const newState = await getState(room.id);
+    io.to(code).emit("stateUpdate", newState);
+  } catch (err) {
+    console.error("stay error:", err);
+  }
+});
 
-      const isMyTurn =
-        state.currentPlayerId === playerId &&
-        !state.roundOver &&
-        !state.paused &&
-        !state.pendingActionType;
+/**
+ * PASS
+ */
+socket.on("pass", async ({ roomCode, playerId }) => {
+  try {
+    const code = String(roomCode || "").trim().toUpperCase();
 
-      if (!isMyTurn) return;
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
+    if (!roomRes.rows.length) return;
+    const room = roomRes.rows[0];
 
-      await advanceTurn(room.id);
+    const state = await getState(room.id);
+    if (!state) return;
 
-      const newState = await getState(room.id);
-      io.to(code).emit("stateUpdate", newState);
-    } catch (err) {
-      console.error("pass error:", err);
-    }
-  });
+    const isMyTurn =
+      state.currentPlayerId === playerId &&
+      !state.roundOver &&
+      !state.paused &&
+      !state.pendingActionType;
+
+    if (!isMyTurn) return;
+
+    //  Clear any pending action (including "DREW")
+    // If this is not cleared, the next round will NOT rotate to the next starter.
+    await pool.query(
+      `UPDATE rooms
+       SET pending_action_type = NULL,
+           pending_action_actor_id = NULL,
+           pending_action_value = NULL
+       WHERE id = $1`,
+      [room.id]
+    );
+
+    // Move to next player
+    await advanceTurn(room.id);
+
+    const newState = await getState(room.id);
+    io.to(code).emit("stateUpdate", newState);
+  } catch (err) {
+    console.error("pass error:", err);
+  }
+});
+
+
+   
 
   /**
    * END ROUND
@@ -1359,37 +1409,40 @@ io.on("connection", socket => {
     }
   });
 
-   //Server handles Second Chance YES/NO
+
+// Server handles Second Chance YES/NO
 socket.on("secondChanceResponse", async ({ roomCode, playerId, use }) => {
-  const roomRes = await pool.query(
-    "SELECT * FROM rooms WHERE code = $1",
-    [roomCode]
-  );
-  if (!roomRes.rows.length) return;
-  const room = roomRes.rows[0];
-
-  const dupValue = room.pending_action_value;
-
-  if (!use) {
-    // Player busts
-    await pool.query(
-      `UPDATE room_players
-       SET stayed = TRUE, round_bust = TRUE
-       WHERE player_id = $1 AND room_id = $2`,
-      [playerId, room.id]
+  try {
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [roomCode]
     );
-  } else {
-    // Remove duplicate card
-    await removeFromHand(room.id, playerId, dupValue);
+    if (!roomRes.rows.length) return;
+    const room = roomRes.rows[0];
 
-    // Remove Second Chance card
-    await removeFromHand(room.id, playerId, "Second Chance");
+    const dupValue = room.pending_action_value;
 
-    // Discard both
-    await addToDiscard(room.id, dupValue);
-    await addToDiscard(room.id, "Second Chance");
+    if (!use) {
+      // ❌ Player chooses NOT to use Second Chance → they bust
+      await pool.query(
+        `UPDATE room_players
+         SET stayed = TRUE, round_bust = TRUE
+         WHERE player_id = $1 AND room_id = $2`,
+        [playerId, room.id]
+      );
+    } else {
+      // ✔ Remove duplicate card
+      await removeFromHand(room.id, playerId, dupValue);
 
-    // Allow drawing again
+      // ✔ Remove Second Chance card
+      await removeFromHand(room.id, playerId, "Second Chance");
+
+      // ✔ Discard both cards
+      await addToDiscard(room.id, dupValue);
+      await addToDiscard(room.id, "Second Chance");
+    }
+
+    // Clear ALL pending action fields so the turn system works correctly.
     await pool.query(
       `UPDATE rooms
        SET pending_action_type = NULL,
@@ -1398,14 +1451,16 @@ socket.on("secondChanceResponse", async ({ roomCode, playerId, use }) => {
        WHERE id = $1`,
       [room.id]
     );
+
+    // Send updated state to all players
+    const newState = await getState(room.id);
+    io.to(roomCode).emit("stateUpdate", newState);
+
+  } catch (err) {
+    console.error("secondChanceResponse error:", err);
   }
-
-  const newState = await getState(room.id);
-  io.to(roomCode).emit("stateUpdate", newState);
 });
-
-
-
+   
    
   /**
    * DISCONNECT

@@ -1023,15 +1023,19 @@ function detectSoundAndAnimationEvents(state) {
         animateCardToSeat(newCard, seatIndex);
       }
 
-      if (newCard === "Second Chance") {
-        playSound("secondChance");
-      } else if (newCard === "6-") {
-        playSound("sixMinus");
-      } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
-        playSound("action");
-      } else {
-        playSound("draw");
-      }
+   // Delay draw-related sounds slightly so shuffle plays first
+   setTimeout(() => {
+     if (newCard === "Second Chance") {
+       playSound("secondChance");
+     } else if (newCard === "6-") {
+       playSound("sixMinus");
+     } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
+       playSound("action");
+     } else {
+       playSound("draw");
+     }
+   }, 120); // 120ms delay ensures shuffle sound plays first
+
     });
   }
 
@@ -1192,6 +1196,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

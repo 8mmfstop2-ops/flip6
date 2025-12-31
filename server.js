@@ -466,8 +466,9 @@ async function advanceTurn(roomId, options = {}) {
   }
 
   // Load active, not-stayed players in turn order
+  // use player_id instead of id
   const playersRes = await pool.query(
-    `SELECT id, stayed, round_bust
+    `SELECT player_id, stayed, round_bust
      FROM room_players
      WHERE room_id = $1 AND active = TRUE
      ORDER BY order_index ASC`,
@@ -475,7 +476,9 @@ async function advanceTurn(roomId, options = {}) {
   );
 
   const candidates = playersRes.rows.filter(p => !p.stayed && !p.round_bust);
-  const players = candidates.map(p => p.id);
+
+  // turn order uses player_id
+  const players = candidates.map(p => p.player_id);
 
   // If no candidates left, mark round over and stop
   if (players.length === 0) {
@@ -498,7 +501,7 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Find current player index in the full active list
+  // Find current player index
   const currentIdx = players.indexOf(room.current_player_id);
 
   // If current player not eligible or not found, reset to first
@@ -607,9 +610,9 @@ async function endRound(roomId) {
   const room = roomRes.rows[0];
   const round = room.round_number;
 
-  // Load players in turn order
+  // FIX: use player_id instead of id
   const playersRes = await pool.query(
-    `SELECT id, round_bust
+    `SELECT player_id, round_bust
      FROM room_players
      WHERE room_id = $1 AND active = TRUE
      ORDER BY order_index`,
@@ -618,7 +621,7 @@ async function endRound(roomId) {
 
   // Score each player
   for (const p of playersRes.rows) {
-    const pid = p.id;
+    const pid = p.player_id; // FIXED
     let score = 0;
 
     if (!p.round_bust) {
@@ -645,8 +648,8 @@ async function endRound(roomId) {
 
     // Update total score
     await pool.query(
-      "UPDATE room_players SET total_score = total_score + $1 WHERE id = $2",
-      [score, pid]
+      "UPDATE room_players SET total_score = total_score + $1 WHERE player_id = $2 AND room_id = $3",
+      [score, pid, roomId]
     );
 
     // Move cards to discard
@@ -683,18 +686,17 @@ async function endRound(roomId) {
   // Ensure new deck for next round
   await ensureDeck(roomId);
 
-   // Determine next round's starting player (rotate from previous starter)
-   const nextStarter = await getNextStartingPlayer(roomId);
+  // Determine next round's starting player
+  const nextStarter = await getNextStartingPlayer(roomId);
 
   // Set next starter
-   await pool.query(
-     `UPDATE rooms
-      SET current_player_id = $1,
-          round_starter_id = $1
-      WHERE id = $2`,
-     [nextStarter, roomId]
-   );
-
+  await pool.query(
+    `UPDATE rooms
+     SET current_player_id = $1,
+         round_starter_id = $1
+     WHERE id = $2`,
+    [nextStarter, roomId]
+  );
 
   // Begin next round with the chosen starter
   await advanceTurn(roomId, { forceCurrent: true });
@@ -706,6 +708,7 @@ async function endRound(roomId) {
  * STATE PACKING FOR CLIENT
  * ============================================================
  */
+
 async function getState(roomId) {
   const roomRes = await pool.query(
     "SELECT * FROM rooms WHERE id = $1",
@@ -714,8 +717,9 @@ async function getState(roomId) {
   if (!roomRes.rows.length) return null;
   const room = roomRes.rows[0];
 
+  // FIX: send player_id AS id so client uses correct ID
   const playersRes = await pool.query(
-    `SELECT id, name, order_index, active, stayed, total_score, connected, round_bust
+    `SELECT player_id AS id, name, order_index, active, stayed, total_score, connected, round_bust
      FROM room_players
      WHERE room_id = $1
      ORDER BY order_index ASC`,
@@ -740,7 +744,6 @@ async function getState(roomId) {
     [roomId]
   );
 
-  // fetch top discard card
   const topDiscardRes = await pool.query(
     `SELECT value FROM discard_pile
      WHERE room_id = $1
@@ -783,16 +786,12 @@ async function getState(roomId) {
     deckCount: parseInt(deckCountRes.rows[0].count, 10),
     discardCount: parseInt(discardCountRes.rows[0].count, 10),
 
-    // client can show the discard pile
     topDiscardCard: topDiscardRes.rows.length ? topDiscardRes.rows[0].value : null,
-
     topDrawCards: topCardsRes.rows.map(r => r.value),
 
     disconnectedPlayers
   };
 }
-
-
 
 
 
@@ -1486,6 +1485,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => console.log("Server running on port", PORT));
+
 
 
 

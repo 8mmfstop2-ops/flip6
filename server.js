@@ -805,17 +805,18 @@ async function drawCardForPlayer(room, playerId) {
     if (isTrueDuplicate) {
       const hasSecondChance = await playerHasSecondChance(roomId, playerId);
 
-      if (hasSecondChance) {
-        await pool.query(
-          `UPDATE rooms
-           SET pending_action_type = 'SecondChance',
-               pending_action_actor_id = $1,
-               pending_action_value = $2
-           WHERE id = $3`,
-          [playerId, value, roomId]
-        );
-        return;
-      } else {
+   if (hasSecondChance) {
+     // prompt instead of target selection
+     await pool.query(
+       `UPDATE rooms
+        SET pending_action_type = 'SecondChancePrompt',
+            pending_action_actor_id = $1,
+            pending_action_value = $2
+        WHERE id = $3`,
+       [playerId, value, roomId]
+     );
+     return;
+   } else {
         // Bust: mark this player as bust + stayed (by player_id)
         await pool.query(
           `UPDATE room_players
@@ -1358,6 +1359,54 @@ io.on("connection", socket => {
     }
   });
 
+   //Server handles Second Chance YES/NO
+socket.on("secondChanceResponse", async ({ roomCode, playerId, use }) => {
+  const roomRes = await pool.query(
+    "SELECT * FROM rooms WHERE code = $1",
+    [roomCode]
+  );
+  if (!roomRes.rows.length) return;
+  const room = roomRes.rows[0];
+
+  const dupValue = room.pending_action_value;
+
+  if (!use) {
+    // Player busts
+    await pool.query(
+      `UPDATE room_players
+       SET stayed = TRUE, round_bust = TRUE
+       WHERE player_id = $1 AND room_id = $2`,
+      [playerId, room.id]
+    );
+  } else {
+    // Remove duplicate card
+    await removeFromHand(room.id, playerId, dupValue);
+
+    // Remove Second Chance card
+    await removeFromHand(room.id, playerId, "Second Chance");
+
+    // Discard both
+    await addToDiscard(room.id, dupValue);
+    await addToDiscard(room.id, "Second Chance");
+
+    // Allow drawing again
+    await pool.query(
+      `UPDATE rooms
+       SET pending_action_type = NULL,
+           pending_action_actor_id = NULL,
+           pending_action_value = NULL
+       WHERE id = $1`,
+      [room.id]
+    );
+  }
+
+  const newState = await getState(room.id);
+  io.to(roomCode).emit("stateUpdate", newState);
+});
+
+
+
+   
   /**
    * DISCONNECT
    */
@@ -1400,3 +1449,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Server running on port", PORT)
 );
+

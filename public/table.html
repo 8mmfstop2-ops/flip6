@@ -552,6 +552,7 @@ discardPileDiv.style.pointerEvents = "none";
 discardPileDiv.style.cursor = "not-allowed";
 
 let controlsClosedOnce = false;
+let hasDrawnThisTurn = false;
 
 /* ============================================================
    SEAT MAPPING
@@ -915,13 +916,14 @@ function updateButtons(state) {
   deckDiv.classList.toggle("disabled", !isMyTurn);
 
   // Stay + Pass buttons visible only on your turn AND game started
-  if (isMyTurn && !gameNotStarted) {
-    stayButton.style.display = "block";
-    passButton.style.display = "block";
-  } else {
-    stayButton.style.display = "none";
-    passButton.style.display = "none";
-  }
+   // Stay/Pass only appear AFTER drawing a card
+   if (isMyTurn && hasDrawnThisTurn && !gameNotStarted) {
+     stayButton.style.display = "block";
+     passButton.style.display = "block";
+   } else {
+     stayButton.style.display = "none";
+     passButton.style.display = "none";
+   }
 
   // End Round button
   endTurnsButton.disabled = !state.roundOver || state.paused;
@@ -1030,6 +1032,9 @@ function detectSoundAndAnimationEvents(state) {
 ============================================================ */
 socket.on("stateUpdate", (state) => {
   currentState = state;
+   if (state.currentPlayerId !== playerId) {
+     hasDrawnThisTurn = false;
+   }
 
   document.getElementById("round-display").textContent =
     "Round " + state.roundNumber;
@@ -1054,24 +1059,29 @@ socket.on("connect", async () => {
    UI EVENTS
 ============================================================ */
 
-// Draw card
+// Draw card  
 deckDiv.addEventListener("click", () => {
-   //safety check that prevents the deck click handler from running before the game is ready.
-  if (!currentState) return; 
-   
+ //safety check that prevents the deck click handler from running before the game is ready.
+  if (!currentState) return;
+
   const isMyTurn =
     currentState.currentPlayerId === playerId &&
     !currentState.roundOver &&
     !currentState.paused &&
     !currentState.pendingActionType;
 
- //  statusDiv.textContent = `Player ${playerId} clicked the deck`;
-   
   if (!isMyTurn) return;
+
+  // NEW: prevent multiple draws
+  if (hasDrawnThisTurn) return;
+
+  hasDrawnThisTurn = true;
+
   socket.emit("drawCard", { roomCode, playerId });
 });
 
 
+   
 // Stay
 stayButton.addEventListener("click", () => {
   if (!currentState) return;
@@ -1148,6 +1158,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

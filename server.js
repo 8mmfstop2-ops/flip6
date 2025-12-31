@@ -560,14 +560,14 @@ async function computeScore(roomId, playerId) {
   return score * mult;
 }
 
-
+//Get next round player
 async function getNextStartingPlayer(roomId) {
-  // Load room to get the last starter (current_player_id from the round that just ended)
+  // Load room to get the last round starter
   const roomRes = await pool.query(
-    `SELECT current_player_id FROM rooms WHERE id = $1`,
+    `SELECT round_starter_id FROM rooms WHERE id = $1`,
     [roomId]
   );
-  const lastStarterId = roomRes.rows[0]?.current_player_id || null;
+  const lastStarterId = roomRes.rows[0]?.round_starter_id || null;
 
   // Load active players in seat/turn order
   const playersRes = await pool.query(
@@ -594,6 +594,7 @@ async function getNextStartingPlayer(roomId) {
   const nextIndex = (index + 1) % players.length;
   return players[nextIndex];
 }
+
 
 
 
@@ -683,8 +684,8 @@ async function endRound(roomId) {
   // Ensure new deck for next round
   await ensureDeck(roomId);
 
-  // Determine next round's starting player
-  const nextStarter = await getNextStartingPlayer(roomId);
+   // Determine next round's starting player (rotate from previous starter)
+   const nextStarter = await getNextStartingPlayer(roomId);
 
   // Set next starter
    await pool.query(
@@ -1486,6 +1487,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => console.log("Server running on port", PORT));
+
 
 
 

@@ -562,23 +562,23 @@ async function computeScore(roomId, playerId) {
 
 //Get next round player
 async function getNextStartingPlayer(roomId) {
-  // Load room to get the last round starter
+  // Load room to get the last round starter (stored as player_id)
   const roomRes = await pool.query(
     `SELECT round_starter_id FROM rooms WHERE id = $1`,
     [roomId]
   );
   const lastStarterId = roomRes.rows[0]?.round_starter_id || null;
 
-  // Load active players in seat/turn order
+  // Load active players in seat/turn order, using player_id
   const playersRes = await pool.query(
-    `SELECT id
+    `SELECT player_id
      FROM room_players
      WHERE room_id = $1 AND active = TRUE
      ORDER BY order_index ASC`,
     [roomId]
   );
 
-  const players = playersRes.rows.map(r => r.id);
+  const players = playersRes.rows.map(r => r.player_id);
 
   if (players.length === 0) return null;
 
@@ -590,11 +590,10 @@ async function getNextStartingPlayer(roomId) {
   // If last starter not found (e.g. removed), default to first
   if (index === -1) return players[0];
 
-  // Rotate to next player
+  // Rotate to next player (loop)
   const nextIndex = (index + 1) % players.length;
   return players[nextIndex];
 }
-
 
 
 
@@ -1487,6 +1486,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => console.log("Server running on port", PORT));
+
 
 
 

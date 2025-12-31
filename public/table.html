@@ -900,9 +900,7 @@ function updateButtons(state) {
      !state.roundOver &&
      !state.paused &&
      !state.pendingActionType;
-
-   console.log("currentPlayerId:", state.currentPlayerId, "my playerId:", playerId);
-
+ 
    if (isMyTurn) {
      deckDiv.classList.add("deck-clickable");
    } else {
@@ -959,7 +957,6 @@ function updateButtons(state) {
 }
 
 
-   
 
 /* ============================================================
    PAUSE OVERLAY
@@ -1068,7 +1065,7 @@ deckDiv.addEventListener("click", () => {
     !currentState.paused &&
     !currentState.pendingActionType;
 
-   statusDiv.textContent = `Player ${playerId} clicked the deck`;
+ //  statusDiv.textContent = `Player ${playerId} clicked the deck`;
    
   if (!isMyTurn) return;
   socket.emit("drawCard", { roomCode, playerId });
@@ -1151,6 +1148,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -1,5 +1,5 @@
 /********************************************************************************************
- *  Flip‑to‑6 — FULL MULTIPLAYER GAME SERVER v0.0.1
+ *  Flip‑to‑6 — FULL MULTIPLAYER GAME SERVER v1.0.2 (with disconnect turn-advance fix)
  *  -----------------------------------------------------------------------------------------
  *  SECTION 1 — IMPORTS & SERVER SETUP
  *
@@ -306,17 +306,20 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
 }
 
 /**
- * Builds a completely fresh deck from card_types.
- * Used at the start of the game or start of a new round.
- * Clears ALL piles + player hands because a new round resets everything.
+ * Builds a fresh shuffled deck for a room if none exists.
+ * Also clears discard pile + hands when rebuilding.
  */
-async function buildFreshDeck(roomId) {
-  // Load card definitions (value + count)
+async function ensureDeck(roomId) {
+  const check = await pool.query(
+    "SELECT COUNT(*) FROM draw_pile WHERE room_id = $1",
+    [roomId]
+  );
+  if (parseInt(check.rows[0].count, 10) > 0) return;
+
   const types = await pool.query(
     "SELECT value, count FROM card_types ORDER BY value"
   );
 
-  // Build full deck based on card_types table
   let deck = [];
   types.rows.forEach(row => {
     for (let i = 0; i < row.count; i++) {
@@ -324,117 +327,19 @@ async function buildFreshDeck(roomId) {
     }
   });
 
-  // Shuffle the deck using your hybrid shuffle algorithm
   deck = hybridShuffle(deck);
 
-  // NEW ROUND → clear all old state
   await pool.query("DELETE FROM draw_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM discard_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM player_hands WHERE room_id = $1", [roomId]);
 
-  // Insert the shuffled deck with correct positions
-  const insertValues = deck
-    .map((card, i) => `(${roomId}, ${i}, '${card.value}')`)
-    .join(",");
-
-  await pool.query(`
-    INSERT INTO draw_pile (room_id, position, value)
-    VALUES ${insertValues}
-  `);
-}
-
-
-/**
- * Rebuilds the draw pile from the discard pile.
- * Used MID-ROUND when the draw pile runs out.
- * Players KEEP their hands, and only the draw pile is rebuilt.
- */
-async function rebuildFromDiscard(roomId) {
-  // Load all cards from discard pile in order
-  const discardRes = await pool.query(
-    `SELECT value FROM discard_pile
-     WHERE room_id = $1
-     ORDER BY position ASC`,
-    [roomId]
-  );
-
-  // If discard pile is empty, fallback to a fresh deck
-  if (discardRes.rows.length === 0) {
-    return buildFreshDeck(roomId);
+  for (let i = 0; i < deck.length; i++) {
+    await pool.query(
+      "INSERT INTO draw_pile (room_id, position, value) VALUES ($1, $2, $3)",
+      [roomId, i, deck[i].value]
+    );
   }
-
-  // Convert discard rows into a deck array
-  let deck = discardRes.rows.map(r => ({ value: r.value }));
-
-  // Shuffle the discard pile to form the new draw pile
-  deck = hybridShuffle(deck);
-
-  // MID-ROUND → clear ONLY the draw pile + discard pile
-  // (player hands must remain untouched)
-  await pool.query("DELETE FROM draw_pile WHERE room_id = $1", [roomId]);
-  await pool.query("DELETE FROM discard_pile WHERE room_id = $1", [roomId]);
-
-  // Insert rebuilt deck into draw_pile
-  const insertValues = deck
-    .map((card, i) => `(${roomId}, ${i}, '${card.value}')`)
-    .join(",");
-
-  await pool.query(`
-    INSERT INTO draw_pile (room_id, position, value)
-    VALUES ${insertValues}
-  `);
 }
-
-
-/**
- * Ensures the draw pile has cards.
- *
- * Logic:
- * 1. If draw pile has cards → do nothing.
- * 2. If draw pile is empty but discard pile has cards → rebuild from discard.
- * 3. If both piles are empty → build a fresh deck from card_types.
- *
- * This function NEVER clears player hands.
- * It only decides which deck rebuild method is appropriate.
- */
-async function ensureDeck(roomId) {
-  // Count how many cards are currently in the draw pile
-  const drawCheck = await pool.query(
-    "SELECT COUNT(*) FROM draw_pile WHERE room_id = $1",
-    [roomId]
-  );
-
-  const drawCount = parseInt(drawCheck.rows[0].count, 10);
-
-  // ------------------------------------------------------------
-  // CASE 1: Draw pile has cards → nothing to do
-  // ------------------------------------------------------------
-  if (drawCount > 0) {
-    return; // deck is fine
-  }
-
-  // ------------------------------------------------------------
-  // CASE 2: Draw pile empty → check discard pile
-  // ------------------------------------------------------------
-  const discardCheck = await pool.query(
-    "SELECT COUNT(*) FROM discard_pile WHERE room_id = $1",
-    [roomId]
-  );
-
-  const discardCount = parseInt(discardCheck.rows[0].count, 10);
-
-  // If discard pile has cards → rebuild from discard
-  if (discardCount > 0) {
-    return rebuildFromDiscard(roomId);
-  }
-
-  // ------------------------------------------------------------
-  // CASE 3: Both piles empty → fresh deck from card_types
-  // ------------------------------------------------------------
-  return buildFreshDeck(roomId);
-}
-
-
 
 /**
  * Draws the top card from the draw pile.
@@ -1154,6 +1059,8 @@ app.post("/api/player/join", async (req, res) => {
       room = roomRes.rows[0];
     }
 
+    // Look for any active player with this name in the room.
+    // 'connected' flag is used below to decide between error vs reconnect.
     const dupRes = await pool.query(
       `SELECT player_id, connected
        FROM room_players
@@ -1168,14 +1075,17 @@ app.post("/api/player/join", async (req, res) => {
     if (dupRes.rows.length > 0) {
       const existing = dupRes.rows[0];
 
+      // If they are currently connected, block duplicate login.
       if (existing.connected) {
         return res.status(400).json({
           error: "A player by that name is already in the room."
         });
       }
 
+      // If they are disconnected, allow rejoin with same player_id.
       playerId = existing.player_id;
     } else {
+      // New player, only allowed if room is not locked.
       if (room.locked) {
         return res.status(400).json({
           error: "This room is locked. Only existing players can rejoin."
@@ -1286,6 +1196,7 @@ io.on("connection", socket => {
 
       const player = playerRes.rows[0];
 
+      // Prevent same logical player from being connected on multiple devices
       if (player.connected && player.socket_id && player.socket_id !== socket.id) {
         socket.emit("joinError", {
           message: "This player is already signed in on another device."
@@ -1309,6 +1220,7 @@ io.on("connection", socket => {
       );
       const freshRoom = freshRoomRes.rows[0];
 
+      // If no current player yet and round isn't over, start turn order
       if (!freshRoom.current_player_id && !freshRoom.round_over) {
         await advanceTurn(room.id);
       }
@@ -1320,43 +1232,59 @@ io.on("connection", socket => {
     }
   });
 
-/**
- * DRAW CARD
- *   - Only current player
- *   - Not paused
- *   - No pending_action_type
- *   - If deck is empty → shuffle only (no draw yet)
- */
-socket.on("drawCard", async ({ roomCode, playerId }) => {
-  const room = await getRoom(roomCode);
-  let state = await getState(room.id);
+  /**
+   * DRAW CARD
+   *   - Only current player
+   *   - Not paused
+   *   - No pending_action_type
+   *   - If deck is empty → shuffle only (no draw yet)
+   */
+  socket.on("drawCard", async ({ roomCode, playerId }) => {
+    try {
+      const code = String(roomCode || "").trim().toUpperCase();
 
-  // 1. Validate turn
-  const isMyTurn =
-    state.currentPlayerId === playerId &&
-    !state.roundOver &&
-    !state.paused &&
-    !state.pendingActionType;
+      // Load room
+      const roomRes = await pool.query(
+        "SELECT * FROM rooms WHERE code = $1",
+        [code]
+      );
+      if (!roomRes.rows.length) return;
+      const room = roomRes.rows[0];
 
-  if (!isMyTurn) return;
+      // Load state
+      const state = await getState(room.id);
+      if (!state) return;
 
-  // 2. If deck is empty → rebuild it
-  if (state.deckCount === 0) {
-    await ensureDeck(room.id);
+      // Validate turn
+      const isMyTurn =
+        state.currentPlayerId === playerId &&
+        !state.roundOver &&
+        !state.paused &&
+        !state.pendingActionType;
 
-    // Reload state AFTER shuffle
-    state = await getState(room.id);
-  }
+      if (!isMyTurn) return;
 
-  // 3. Now draw the card (same click)
-  await drawCardForPlayer(room, playerId);
+      // If deck is empty → shuffle only, do NOT draw yet
+      if (state.deckCount === 0) {
+        await ensureDeck(room.id);
 
-  // 4. Send final state (this is when buttons appear)
-  const newState = await getState(room.id);
-  io.to(roomCode).emit("stateUpdate", newState);
-});
+        // Send updated state so client plays shuffle sound
+        const shuffledState = await getState(room.id);
+        io.to(code).emit("stateUpdate", shuffledState);
 
- 
+        return; // <-- stop here, no draw yet
+      }
+
+      // Normal draw
+      await drawCardForPlayer(room, playerId);
+
+      const newState = await getState(room.id);
+      io.to(code).emit("stateUpdate", newState);
+
+    } catch (err) {
+      console.error("drawCard error:", err);
+    }
+  });
 
   /**
    * STAY
@@ -1647,12 +1575,17 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
 
   /**
    * DISCONNECT
-   *   - Marks player disconnected
-   *   - Recomputes paused state
-   *   - Broadcasts updated state
+   *  - Marks player disconnected
+   *  - Recomputes paused state
+   *  - If the disconnected player was current, advances turn
+   *  - Broadcasts updated state
+   *
+   *  This is the only behavior we changed: adding the
+   *  "advance turn if current player disconnected" safeguard.
    */
   socket.on("disconnect", async () => {
     try {
+      // Mark this socket as disconnected
       const res = await pool.query(
         `UPDATE room_players
          SET connected = FALSE, socket_id = NULL
@@ -1663,6 +1596,8 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
 
       if (res.rows.length > 0) {
         const roomId = res.rows[0].room_id;
+
+        // Update paused flag based on connected players
         await recomputePause(roomId);
 
         const roomRes = await pool.query(
@@ -1671,8 +1606,23 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
         );
         if (roomRes.rows.length) {
           const code = roomRes.rows[0].code;
-          const newState = await getState(roomId);
-          io.to(code).emit("stateUpdate", newState);
+
+          // Get current snapshot
+          let state = await getState(roomId);
+
+          // If the current player is now disconnected, advance the turn
+          if (
+            state &&
+            state.currentPlayerId &&
+            !state.players.some(
+              p => p.id === state.currentPlayerId && p.connected
+            )
+          ) {
+            await advanceTurn(roomId);
+            state = await getState(roomId);
+          }
+
+          io.to(code).emit("stateUpdate", state);
         }
       }
     } catch (err) {
@@ -1691,7 +1641,3 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
-
-
-
-

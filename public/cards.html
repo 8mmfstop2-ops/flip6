@@ -26,6 +26,7 @@
       margin-top: 0;
     }
 
+    /* Grid layout for the draw pile cards */
     #deck {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -33,6 +34,7 @@
       margin-top: 20px;
     }
 
+    /* Card styling */
     .card {
       background: #222;
       border-radius: 4px;
@@ -74,6 +76,23 @@
       cursor: pointer;
       margin-left: 6px;
     }
+
+    /* Table styling */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th, td {
+      border: 1px solid #444;
+      padding: 6px;
+      text-align: center;
+    }
+
+    th {
+      background: #333;
+    }
   </style>
 </head>
 
@@ -82,11 +101,35 @@
 <div id="container">
   <h1>Draw Pile Viewer</h1>
 
+  <!-- Room code input -->
   <p>Enter Room Code:</p>
   <input id="roomCode" placeholder="ABCD">
   <button onclick="loadPile()">Load</button>
 
-  <div id="deck"></div>
+  <!-- Accordion for the draw pile (OPEN by default) -->
+  <details open id="deck-accordion">
+    <summary>Draw Pile (Cards in Order)</summary>
+    <div id="deck" style="margin-top:12px;"></div>
+  </details>
+
+  <!-- Accordion for card statistics -->
+  <details id="stats-accordion" style="margin-top:20px;">
+    <summary>Card Type Statistics</summary>
+
+    <table id="card-stats-table">
+      <thead>
+        <tr>
+          <th>Card Value</th>
+          <th>Draw Pile</th>
+          <th>Discard Pile</th>
+          <th>Total (Draw + Discard)</th>
+          <th>card_types Count</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </details>
+
 </div>
 
 <script>
@@ -94,11 +137,12 @@
    HELPER: Detect if card is an action card
    ============================================================ */
 function isAction(value) {
+  // Action cards are NOT numbers 0–12
   return !/^(?:[0-9]|1[0-2])$/.test(value);
 }
 
 /* ============================================================
-   RENDER DECK
+   RENDER DRAW PILE
    ============================================================ */
 function renderDeck(deckArray) {
   const deckEl = document.getElementById("deck");
@@ -116,7 +160,7 @@ function renderDeck(deckArray) {
 
     const idx = document.createElement("span");
     idx.className = "card-index";
-    idx.textContent = "#" + (index+1);
+    idx.textContent = "#" + (index + 1);
 
     div.appendChild(label);
     div.appendChild(idx);
@@ -125,7 +169,73 @@ function renderDeck(deckArray) {
 }
 
 /* ============================================================
-   LOAD DECK FROM SERVER
+   RENDER CARD STATISTICS TABLE
+   ============================================================ */
+function renderCardStats(cardTypes, drawPile, discardPile) {
+  const tbody = document.querySelector("#card-stats-table tbody");
+  tbody.innerHTML = "";
+
+  // Count draw pile occurrences
+  const drawCounts = {};
+  drawPile.forEach(c => {
+    drawCounts[c.value] = (drawCounts[c.value] || 0) + 1;
+  });
+
+  // Count discard pile occurrences
+  const discardCounts = {};
+  discardPile.forEach(c => {
+    discardCounts[c.value] = (discardCounts[c.value] || 0) + 1;
+  });
+
+  // Totals accumulators
+  let totalDraw = 0;
+  let totalDiscard = 0;
+  let totalCombined = 0;
+  let totalCardTypes = 0;
+
+  // Build table rows
+  cardTypes.forEach(type => {
+    const value = type.value;
+    const draw = drawCounts[value] || 0;
+    const discard = discardCounts[value] || 0;
+    const combined = draw + discard;
+    const typeCount = type.count;
+
+    totalDraw += draw;
+    totalDiscard += discard;
+    totalCombined += combined;
+    totalCardTypes += typeCount;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${value}</td>
+      <td>${draw}</td>
+      <td>${discard}</td>
+      <td>${combined}</td>
+      <td>${typeCount}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Add totals row
+  const totalRow = document.createElement("tr");
+  totalRow.style.fontWeight = "bold";
+  totalRow.style.background = "#333";
+
+  totalRow.innerHTML = `
+    <td>Total</td>
+    <td>${totalDraw}</td>
+    <td>${totalDiscard}</td>
+    <td>${totalCombined}</td>
+    <td>${totalCardTypes}</td>
+  `;
+
+  tbody.appendChild(totalRow);
+}
+
+
+/* ============================================================
+   LOAD DATA FROM SERVER
    ============================================================ */
 async function loadPile() {
   const code = document.getElementById("roomCode").value.trim().toUpperCase();
@@ -134,6 +244,7 @@ async function loadPile() {
     return;
   }
 
+  // Fetch draw pile, discard pile, and card_types
   const res = await fetch(`/api/room/${code}/draw-pile`);
   const data = await res.json();
 
@@ -148,16 +259,21 @@ async function loadPile() {
   }
 
   // Convert DB rows → ordered array of values
-  const ordered = data.drawPile
+  const orderedDraw = data.drawPile
     .sort((a, b) => a.position - b.position)
     .map(d => d.value);
 
-  renderDeck(ordered);
+  // Render draw pile
+  renderDeck(orderedDraw);
+
+  // Render statistics table
+  renderCardStats(
+    data.cardTypes,   // must include { value, count }
+    data.drawPile,    // raw objects with .value
+    data.discardPile || [] // fallback if empty
+  );
 }
 </script>
 
 </body>
 </html>
-
-
-

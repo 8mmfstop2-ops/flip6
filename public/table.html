@@ -835,25 +835,28 @@ function animateCardToSeat(value, seatIndex) {
    RENDER DECK
 ============================================================ */
 function renderDeck(state) {
+  deckDiv.innerHTML = "";
 
-  // Initialize maxDeckSize once
-  if (!maxDeckSize && state.deckCount > 0) {
-    maxDeckSize = state.deckCount;
-  }
-
-  // Handle empty deck
+  // Empty deck
   if (state.deckCount === 0) {
     deckDiv.classList.add("placeholder");
     deckCountDiv.textContent = "0 cards";
 
     deckDiv.classList.remove(`step${currentStep}`);
+    deckDiv.classList.add("step10");
     currentStep = 10;
-    deckDiv.classList.add(`step${currentStep}`);
-
     return;
   }
 
   deckDiv.classList.remove("placeholder");
+
+  // Create 5 stacked card backs for animation
+  const count = Math.min(state.deckCount, 5);
+  for (let i = 0; i < count; i++) {
+    const card = document.createElement("div");
+    card.classList.add("card");
+    deckDiv.appendChild(card);
+  }
 
   // Thickness logic
   const totalCards = state.deckCount;
@@ -871,10 +874,9 @@ function renderDeck(state) {
   else newStep = 9;
 
   deckDiv.classList.remove(`step${currentStep}`);
+  deckDiv.classList.add(`step${newStep}`);
   currentStep = newStep;
-  deckDiv.classList.add(`step${currentStep}`);
 
-  // Update count label
   deckCountDiv.textContent = totalCards + " cards";
 }
 
@@ -1277,16 +1279,4 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -84,7 +84,7 @@
 
     .card button {
       position: absolute;
-      bottom: 60px; /* was 20px — now higher */
+      bottom: 60px;
       left: 50%;
       transform: translateX(-50%);
       width: 80%;
@@ -113,9 +113,9 @@
     }
   
     #msg {
-      display: none;                 /* HIDDEN by default */
-      background: rgba(255, 0, 0, 0.25); /* soft transparent red */
-      color: #ffff;                    
+      display: none;
+      background: rgba(255, 0, 0, 0.25);
+      color: #fff;
       padding: 12px 18px;
       border-radius: 8px;
       font-size: 14px;
@@ -123,12 +123,11 @@
       text-align: center;
       margin: 40px auto 10px auto;
       width: 80%;
-      backdrop-filter: blur(2px);        /* subtle blur behind text */
+      backdrop-filter: blur(2px);
     }
-
-    
   </style>
 </head>
+
 <body>
   <div class="card">
     <div class="settings-icon" id="settingsBtn">⚙️</div>
@@ -146,62 +145,67 @@
 
         <div class="room-box">
           <label>Room Code</label>
-          <input id="roomCode"  placeholder="e.g. RM92a" name="roomCode" required />
+          <input id="roomCode" placeholder="e.g. RM92A" name="roomCode" required />
         </div>
       </div>
     </div>
 
     <button id="joinBtn">Join Game Room</button>
-<span style="
-  font-size:0.75em;
-  color:#666;
-  background: rgba(255, 255, 255, 0.4);
-  padding: 4px 6px;
-  border-radius: 4px;
-  width: 80%;              /* matches button width */
-  display: block;          /* so width works */
-  text-align: center;
-  margin-top: 20px;        /* gap above text */
-">
-  This game is inspired by Flip 7, created by Eric Olsen. It is an independent project and is not affiliated with, endorsed by, or sponsored by Eric Olsen.
-</span>
 
-
+    <span style="
+      font-size:0.75em;
+      color:#666;
+      background: rgba(255, 255, 255, 0.4);
+      padding: 4px 6px;
+      border-radius: 4px;
+      width: 80%;
+      display: block;
+      text-align: center;
+      margin-top: 20px;
+    ">
+      This game is inspired by Flip 7, created by Eric Olsen. It is an independent project and is not affiliated with, endorsed by, or sponsored by Eric Olsen.
+    </span>
   </div>
 
   <script>
+    // --- Sanitization helpers ---
+    function sanitizeName(input) {
+      return input.replace(/[^A-Za-z0-9 _-]/g, "").substring(0, 20);
+    }
+
+    function sanitizeRoomCode(input) {
+      return input.replace(/[^A-Za-z0-9]/g, "").substring(0, 10).toUpperCase();
+    }
 
     async function ensureDeckInitialized() {
       try {
-        // Check if card_types already has data
         const res = await fetch("/api/cards/meta");
         const data = await res.json();
-    
-        // If no cards exist → initialize deck definitions
+
         if (!data.success || !data.cards || data.cards.length === 0) {
           console.log("Initializing card_types...");
-          const initRes = await fetch("/api/init-deck", { method: "POST" });
-          const initData = await initRes.json();
-          console.log("Init result:", initData);
-        } else {
-          console.log("card_types already initialized.");
+          await fetch("/api/init-deck", { method: "POST" });
         }
       } catch (err) {
         console.error("Error checking deck initialization:", err);
       }
     }
-    
+
     document.getElementById("joinBtn").addEventListener("click", async () => {
-      const name = document.getElementById("name").value.trim();
-      const roomCode = document.getElementById("roomCode").value.trim().toUpperCase();
       const msg = document.getElementById("msg");
 
+      const rawName = document.getElementById("name").value.trim();
+      const rawRoom = document.getElementById("roomCode").value.trim();
+
+      const name = sanitizeName(rawName);
+      const roomCode = sanitizeRoomCode(rawRoom);
+
       msg.textContent = "";
+      msg.style.display = "none";
 
       if (!name || !roomCode) {
         msg.textContent = "Please enter both name and room code.";
-      msg.style.display = "block";
-
+        msg.style.display = "block";
         return;
       }
 
@@ -216,18 +220,15 @@
 
         if (!res.ok) {
           msg.textContent = data.error || "Unable to join room.";
-msg.style.display = "block";
-
+          msg.style.display = "block";
           return;
         }
 
-        // Redirect to the playing table
         window.location.href = data.redirect;
 
       } catch (err) {
         msg.textContent = "Network error. Try again.";
-msg.style.display = "block";
-
+        msg.style.display = "block";
       }
     });
 
@@ -235,23 +236,7 @@ msg.style.display = "block";
       window.open("admin-login.html", "_blank");
     });
 
-
-  
-  // Run automatically when index.html loads
-  ensureDeckInitialized();
- 
-    
+    ensureDeckInitialized();
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-

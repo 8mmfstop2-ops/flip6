@@ -306,20 +306,17 @@ function hybridShuffle(deck, streakLengths = [2, 3]) {
 }
 
 /**
- * Builds a fresh shuffled deck for a room if none exists.
- * Also clears discard pile + hands when rebuilding.
+ * Builds a completely fresh deck from card_types.
+ * Used at the start of the game or start of a new round.
+ * Clears ALL piles + player hands because a new round resets everything.
  */
-async function ensureDeck(roomId) {
-  const check = await pool.query(
-    "SELECT COUNT(*) FROM draw_pile WHERE room_id = $1",
-    [roomId]
-  );
-  if (parseInt(check.rows[0].count, 10) > 0) return;
-
+async function buildFreshDeck(roomId) {
+  // Load card definitions (value + count)
   const types = await pool.query(
     "SELECT value, count FROM card_types ORDER BY value"
   );
 
+  // Build full deck based on card_types table
   let deck = [];
   types.rows.forEach(row => {
     for (let i = 0; i < row.count; i++) {
@@ -327,27 +324,116 @@ async function ensureDeck(roomId) {
     }
   });
 
+  // Shuffle the deck using your hybrid shuffle algorithm
   deck = hybridShuffle(deck);
 
+  // NEW ROUND → clear all old state
   await pool.query("DELETE FROM draw_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM discard_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM player_hands WHERE room_id = $1", [roomId]);
 
-  for (let i = 0; i < deck.length; i++) {
-    await pool.query(
-      "INSERT INTO draw_pile (room_id, position, value) VALUES ($1, $2, $3)",
-      [roomId, i, deck[i].value]
-    );
-  }
+  // Insert the shuffled deck with correct positions
+  const insertValues = deck
+    .map((card, i) => `(${roomId}, ${i}, '${card.value}')`)
+    .join(",");
 
-  // CRITICAL: Update deckCount so the server knows the deck exists
-  await pool.query(
-    `UPDATE rooms
-     SET deckCount = (SELECT COUNT(*) FROM draw_pile WHERE room_id = $1)
-     WHERE id = $1`,
+  await pool.query(`
+    INSERT INTO draw_pile (room_id, position, value)
+    VALUES ${insertValues}
+  `);
+}
+
+
+/**
+ * Rebuilds the draw pile from the discard pile.
+ * Used MID-ROUND when the draw pile runs out.
+ * Players KEEP their hands, and only the draw pile is rebuilt.
+ */
+async function rebuildFromDiscard(roomId) {
+  // Load all cards from discard pile in order
+  const discardRes = await pool.query(
+    `SELECT value FROM discard_pile
+     WHERE room_id = $1
+     ORDER BY position ASC`,
     [roomId]
   );
+
+  // If discard pile is empty, fallback to a fresh deck
+  if (discardRes.rows.length === 0) {
+    return buildFreshDeck(roomId);
+  }
+
+  // Convert discard rows into a deck array
+  let deck = discardRes.rows.map(r => ({ value: r.value }));
+
+  // Shuffle the discard pile to form the new draw pile
+  deck = hybridShuffle(deck);
+
+  // MID-ROUND → clear ONLY the draw pile + discard pile
+  // (player hands must remain untouched)
+  await pool.query("DELETE FROM draw_pile WHERE room_id = $1", [roomId]);
+  await pool.query("DELETE FROM discard_pile WHERE room_id = $1", [roomId]);
+
+  // Insert rebuilt deck into draw_pile
+  const insertValues = deck
+    .map((card, i) => `(${roomId}, ${i}, '${card.value}')`)
+    .join(",");
+
+  await pool.query(`
+    INSERT INTO draw_pile (room_id, position, value)
+    VALUES ${insertValues}
+  `);
 }
+
+
+/**
+ * Ensures the draw pile has cards.
+ *
+ * Logic:
+ * 1. If draw pile has cards → do nothing.
+ * 2. If draw pile is empty but discard pile has cards → rebuild from discard.
+ * 3. If both piles are empty → build a fresh deck from card_types.
+ *
+ * This function NEVER clears player hands.
+ * It only decides which deck rebuild method is appropriate.
+ */
+async function ensureDeck(roomId) {
+  // Count how many cards are currently in the draw pile
+  const drawCheck = await pool.query(
+    "SELECT COUNT(*) FROM draw_pile WHERE room_id = $1",
+    [roomId]
+  );
+
+  const drawCount = parseInt(drawCheck.rows[0].count, 10);
+
+  // ------------------------------------------------------------
+  // CASE 1: Draw pile has cards → nothing to do
+  // ------------------------------------------------------------
+  if (drawCount > 0) {
+    return; // deck is fine
+  }
+
+  // ------------------------------------------------------------
+  // CASE 2: Draw pile empty → check discard pile
+  // ------------------------------------------------------------
+  const discardCheck = await pool.query(
+    "SELECT COUNT(*) FROM discard_pile WHERE room_id = $1",
+    [roomId]
+  );
+
+  const discardCount = parseInt(discardCheck.rows[0].count, 10);
+
+  // If discard pile has cards → rebuild from discard
+  if (discardCount > 0) {
+    return rebuildFromDiscard(roomId);
+  }
+
+  // ------------------------------------------------------------
+  // CASE 3: Both piles empty → fresh deck from card_types
+  // ------------------------------------------------------------
+  return buildFreshDeck(roomId);
+}
+
 
 
 /**
@@ -1622,4 +1708,5 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 

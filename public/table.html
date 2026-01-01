@@ -3,315 +3,435 @@
 <head>
 <meta charset="UTF-8">
 <title>Flip‑to‑6 — Game Table v1.0.1</title>
-
 <style>
-/* ============================================================
-   GENERAL PAGE STYLE
-============================================================ */
-body {
-  font-family: Arial, sans-serif;
-  background: #304730;
-  color: #fff;
-  text-align: center;
-  margin: 0;
-  padding: 0;
-}
-
-#status {
-  margin: 10px;
-  font-weight: bold;
-  color: #fff;
-}
-
-/* ============================================================
-   ACCORDION
-============================================================ */
-details {
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  margin: 6px auto;
-  width: 95%;
-  background: #222;
-}
-summary {
-  cursor: pointer;
-  padding: 5px 0px;
-  font-weight: 600;
-  list-style: none;
-}
-summary::before {
-  content: "▶";
-  font-size: 0.9em;
-  margin-right: 8px;
-  transition: transform 0.2s ease;
-  display: inline-block;
-}
-details[open] summary::before {
-  transform: rotate(90deg);
-}
-details > div {
-  padding: 6px 6px;
-  border-top: 1px solid #444;
-  background: #333;
-}
-
-/* ============================================================
-   TABLE LAYOUT (6 SEATS)
-============================================================ */
-table.playing-table {
-  margin: 5px auto;
-  border-collapse: collapse;
-  table-layout: fixed;
-  width: 1400px;
-}
-.playing-table td {
-  border: 2px solid #444;
-  padding: 10px;
-  vertical-align: top;
-  background: #0a7f4f;
-  border-radius: 8px;
-}
-
-/* Middle column default: centered vertically */
-.playing-table tr td:nth-child(2) {
-  background: #7992BA;
-  vertical-align: middle;
-}
-
-/* Row 3 middle column override: TOP aligned */
-.playing-table tr:nth-child(3) td:nth-child(2) {
-  vertical-align: top;
-}
-
-/* ============================================================
-   PLAYER NAME
-============================================================ */
-.player-name {
-  font-weight: bold;
-  margin-bottom: 10px;
-  font-size: 1.1em;
-}
-
-/* ============================================================
-   CARD SLOTS
-============================================================ */
-.card-row {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  margin-bottom: 5px;
-}
-.card {
-  width: 70px;
-  height: 100px;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  position: relative;
-  overflow: hidden;
-}
-.card img {
-  width: 70px;
-  height: 100px;
-  border-radius: 6px;
-  border: 3px solid #000;
-  z-index: 5;
-}
-
-/* ============================================================
-   DECK AREA
-============================================================ */
-.deck {
-  position: relative;
-  width: 80px;
-  height: 110px;
-  margin: 40px auto;
-  cursor: pointer;
-  user-select: none;
-}
-.deck.disabled {
-  pointer-events: none;
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.deck .card {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-#deck.placeholder::before {
-  content: "Click to Start";
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 70px;
-  height: 100px;
-  border: 2px dashed #fff;
-  border-radius: 6px;
-  margin: auto;
-  color: #fff;
-  font-weight: bold;
-}
-
-/* ============================================================
-   DISCARD AREA
-============================================================ */
-td.discard-cell {
-  text-align: center;
-  vertical-align: top;
-  padding: 10px 0;
-}
-#discard-pile.empty::before {
-  content: "Empty";
-  color: #fff;
-  font-weight: bold;
-  font-size: 1.1em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 70px;
-  height: 100px;
-  border: 2px dashed #fff;
-  border-radius: 6px;
-  margin: auto;
-}
-
-/* ============================================================
-   BUTTONS (Stay + Pass)
-============================================================ */
-.stay-button {
-  background-color: #3f3f4f;
-  color: #fff;
-  font-size: 1.1em;
-  font-weight: bold;
-  padding: 18px 22px;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  display: block;
-  width: 100%;
-  margin-bottom: 10px;
-}
-.stay-button:hover {
-  background-color: #1ff233;
-}
-
-.end-turns-button {
-  background-color: #6D1AA1;
-  color: #fff;
-  font-size: 1.1em;
-  font-weight: bold;
-  padding: 20px 8px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  margin-bottom: 8px;
-}
-.end-turns-button:hover {
-  background-color: #1ff233;
-}
-.end-turns-button:disabled {
-  background-color: #555 !important;
-  color: #999 !important;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-/* ============================================================
-   AUDIO CONTROLS
-============================================================ */
-.controls-audio {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: center;
-}
-.controls-audio label {
-  font-size: 0.9em;
-}
-#volume-slider {
-  accent-color: #1ff233;
-}
-.sound-item.selected {
-  background: #1ff233;
-  color: #000;
-  border-radius: 6px;
-}
-
-/* ============================================================
-   PLAYER HIGHLIGHTING
-============================================================ */
-.active-player {
-  outline: 5px solid yellow;
-  outline-offset: -5px;
-  background-color: #c9b800 !important;
-}
-.stayed-player {
-  outline: 5px solid red;
-  outline-offset: -5px;
-  background-color: #8b0000 !important;
-}
-
-/* ============================================================
-   TARGET SELECTION MODE
-============================================================ */
-.target-eligible {
-  outline: 5px solid #00ffea;
-  outline-offset: -5px;
-  cursor: pointer;
-}
-.target-ineligible {
-  opacity: 0.3;
-}
-
-/* ============================================================
-   PAUSE OVERLAY
-============================================================ */
-#pause-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(20, 20, 20, 0.85);
-  color: #fff;
-  font-size: 2em;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-
-/* ============================================================
-   FLYING CARD ANIMATION
-============================================================ */
-.flying-card {
-  position: fixed;
-  width: 70px;
-  height: 100px;
-  border-radius: 6px;
-  border: 3px solid #000;
-  pointer-events: none;
-  z-index: 999;
-  transition: transform 0.4s ease-out, opacity 0.4s ease-out;
-}
-
-.dealer-chip {
-  display: inline-block;
-  background: gold;
-  color: black;
-  font-weight: bold;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  text-align: center;
-  line-height: 22px;
-  margin-right: 6px;
-  border: 2px solid #000;
-  box-shadow: 0 0 4px rgba(0,0,0,0.4);
-  font-size: 14px;
-}
+   /* ============================================================
+      GENERAL PAGE STYLE
+      - Sets the overall look of the page background, text, and layout
+   ============================================================ */
+   body {
+     font-family: Arial, sans-serif;
+     background: #304730;   /* Dark green table-like background */
+     color: #fff;           /* White text for contrast */
+     text-align: center;    /* Center-aligns most content */
+     margin: 0;
+     padding: 0;
+   }
+   
+   /* Status text shown above the table */
+   #status {
+     margin: 10px;
+     font-weight: bold;
+     color: #fff;
+   }
+   
+   /* ============================================================
+      ACCORDION (Expandable rule/info sections)
+   ============================================================ */
+   details {
+     border: 1px solid #ccc;
+     border-radius: 6px;
+     margin: 6px auto;
+     width: 95%;
+     background: #222;      /* Dark background for contrast */
+   }
+   
+   summary {
+     cursor: pointer;
+     padding: 5px 0;
+     font-weight: 600;
+     list-style: none;      /* Removes default arrow */
+   }
+   
+   /* Custom arrow icon */
+   summary::before {
+     content: "▶";
+     font-size: 0.9em;
+     margin-right: 8px;
+     transition: transform 0.2s ease;
+     display: inline-block;
+   }
+   
+   /* Rotate arrow when accordion is open */
+   details[open] summary::before {
+     transform: rotate(90deg);
+   }
+   
+   /* Content area inside accordion */
+   details > div {
+     padding: 6px;
+     border-top: 1px solid #444;
+     background: #333;
+   }
+   
+   /* ============================================================
+      TABLE LAYOUT (6 SEATS)
+      - Defines the main game table grid
+   ============================================================ */
+   table.playing-table {
+     margin: 5px auto;
+     border-collapse: collapse;
+     table-layout: fixed;   /* Ensures equal-width columns */
+     width: 1400px;
+   }
+   
+   .playing-table td {
+     border: 2px solid #444;
+     padding: 10px;
+     vertical-align: top;
+     background: #0a7f4f;   /* Green felt color */
+     border-radius: 8px;
+   }
+   
+   /* Middle column default background + vertical centering */
+   .playing-table tr td:nth-child(2) {
+     background: #7992BA;   /* Blue center column */
+     vertical-align: middle;
+   }
+   
+   /* Row 3 middle cell aligns to top instead of middle */
+   .playing-table tr:nth-child(3) td:nth-child(2) {
+     vertical-align: top;
+   }
+   
+   /* ============================================================
+      PLAYER NAME LABEL
+   ============================================================ */
+   .player-name {
+     font-weight: bold;
+     margin-bottom: 10px;
+     font-size: 1.1em;
+   }
+   
+   /* ============================================================
+      CARD SLOTS (Rows that hold player cards)
+   ============================================================ */
+   .card-row {
+     display: flex;
+     justify-content: center;
+     gap: 6px;              /* Space between cards */
+     margin-bottom: 5px;
+   }
+   
+   /* Individual card container */
+   .card {
+     width: 70px;
+     height: 100px;
+     background: transparent;
+     border: none;
+     border-radius: 6px;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     position: relative;    /* Needed so the image can be positioned inside */
+     cursor: pointer;
+     user-select: none;
+   }
+   
+   /* The actual card image */
+   .card img {
+     position: absolute;
+     top: 0;
+     left: 0;
+     width: 70px;
+     height: 100px;
+     border: 3px solid #000;
+     border-radius: 6px;
+     z-index: 5;            /* Ensures image sits above any labels */
+   }
+   
+   /* ============================================================
+      DECK AREA (Main draw pile)
+   ============================================================ */
+   .deck {
+     position: relative;
+     width: 80px;           /* Container for stacked cards */
+     height: 110px;
+     margin: 40px auto;
+     cursor: pointer;
+     user-select: none;
+   }
+   
+   /* Disabled deck (when players can't draw) */
+   .deck.disabled {
+     pointer-events: none;
+     opacity: 0.5;
+     cursor: not-allowed;
+   }
+   
+   /* Cards inside the deck stack */
+   .deck .card {
+     position: absolute;
+     top: 0;
+     left: 0;
+   }
+   
+   /* ============================================================
+      DECK THICKNESS STEPS
+      - These simulate the deck shrinking as cards are drawn
+   ============================================================ */
+   
+   /* Step 1: Thick deck */
+   .deck.step1 .card:nth-child(2) { top: 6px; left: 6px; }
+   .deck.step1 .card:nth-child(3) { top: 12px; left: 8px; }
+   .deck.step1 .card:nth-child(4) { top: 18px; left: 10px; }
+   .deck.step1 .card:nth-child(5) { top: 24px; left: 14px; }
+   
+   /* Step 2 */
+   .deck.step2 .card:nth-child(2) { top: 5px; left: 5px; }
+   .deck.step2 .card:nth-child(3) { top: 10px; left: 10px; }
+   .deck.step2 .card:nth-child(4) { top: 15px; left: 15px; }
+   .deck.step2 .card:nth-child(5) { top: 20px; left: 20px; }
+   
+   /* Step 3 */
+   .deck.step3 .card:nth-child(2) { top: 4px; left: -6px; }
+   .deck.step3 .card:nth-child(3) { top: 8px; left: 2px; }
+   .deck.step3 .card:nth-child(4) { top: 12px; left: 18px; }
+   .deck.step3 .card:nth-child(5) { top: 16px; left: 12px; }
+   
+   /* Step 4 */
+   .deck.step4 .card:nth-child(2) { top: 3px; left: -10px; }
+   .deck.step4 .card:nth-child(3) { top: 6px; left: 0px; }
+   .deck.step4 .card:nth-child(4) { top: 9px; left: 10px; }
+   .deck.step4 .card:nth-child(5) { top: 12px; left: 18px; }
+   
+   /* Step 5 — very thin deck */
+   .deck.step5 .card:nth-child(2) { top: 0; left: -1px; transform: rotate(-1deg); }
+   .deck.step5 .card:nth-child(3) { top: 1px; left: 1px; transform: rotate(-1deg); }
+   .deck.step5 .card:nth-child(4) { top: 2px; left: 5px; transform: rotate(-1deg); }
+   .deck.step5 .card:nth-child(5) { top: 3px; left: 0; transform: rotate(0deg); }
+   
+   /* Step 6 */
+   .deck.step6 .card:nth-child(3) { top: 2px; left: 2px; }
+   .deck.step6 .card:nth-child(4) { top: 3px; left: 3px; }
+   .deck.step6 .card:nth-child(5) { top: 4px; left: 4px; }
+   
+   /* Step 7 */
+   .deck.step7 .card:nth-child(2) { top: 0; left: 0; }
+   .deck.step7 .card:nth-child(3) { top: 1px; left: 1px; }
+   .deck.step7 .card:nth-child(4) { top: 2px; left: 2px; }
+   .deck.step7 .card:nth-child(5) { top: 3px; left: 3px; }
+   
+   /* Step 8 */
+   .deck.step8 .card:nth-child(2) { top: 0; left: 0; }
+   .deck.step8 .card:nth-child(3) { top: 0; left: 0; }
+   .deck.step8 .card:nth-child(4) { top: 1px; left: 1px; }
+   .deck.step8 .card:nth-child(5) { top: 2px; left: 2px; }
+   
+   /* Step 9 — almost empty */
+   .deck.step9 .card:nth-child(2),
+   .deck.step9 .card:nth-child(3),
+   .deck.step9 .card:nth-child(4),
+   .deck.step9 .card:nth-child(5) {
+     top: 0;
+     left: 0;
+   }
+   
+   /* Step 10 — completely empty deck */
+   .deck.step10 .card {
+     display: none;
+   }
+   
+   .deck.step10::before {
+     content: "Empty";
+     color: #fff;
+     font-weight: bold;
+     font-size: 1.2em;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     width: 70px;
+     height: 100px;
+     border: 2px dashed #fff;
+     border-radius: 6px;
+     margin: auto;
+   }
+   
+   /* Placeholder text before game starts */
+   #deck.placeholder::before {
+     content: "Click to Start";
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     width: 70px;
+     height: 100px;
+     border: 2px dashed #fff;
+     border-radius: 6px;
+     margin: auto;
+     color: #fff;
+     font-weight: bold;
+   }
+   
+   /* ============================================================
+      DISCARD PILE
+   ============================================================ */
+   td.discard-cell {
+     text-align: center;
+     vertical-align: top;
+     padding: 10px 0;
+   }
+   
+   /* Empty discard pile outline */
+   #discard-pile.empty::before {
+     content: "Empty";
+     color: #fff;
+     font-weight: bold;
+     font-size: 1.1em;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     width: 70px;
+     height: 100px;
+     border: 2px dashed #fff;
+     border-radius: 6px;
+     margin: auto;
+   }
+   
+   /* ============================================================
+      BUTTONS (Stay + End Turns)
+   ============================================================ */
+   .stay-button {
+     background-color: #3f3f4f;
+     color: #fff;
+     font-size: 1.1em;
+     font-weight: bold;
+     padding: 18px 22px;
+     border: none;
+     border-radius: 8px;
+     cursor: pointer;
+     width: 100%;
+     margin-bottom: 10px;
+   }
+   
+   .stay-button:hover {
+     background-color: #1ff233;
+   }
+   
+   .end-turns-button {
+     background-color: #6D1AA1;
+     color: #fff;
+     font-size: 1.1em;
+     font-weight: bold;
+     padding: 20px 8px;
+     border: none;
+     border-radius: 6px;
+     cursor: pointer;
+     margin-bottom: 8px;
+   }
+   
+   .end-turns-button:hover {
+     background-color: #1ff233;
+   }
+   
+   /* Disabled state */
+   .end-turns-button:disabled {
+     background-color: #555 !important;
+     color: #999 !important;
+     cursor: not-allowed;
+     opacity: 0.6;
+   }
+   
+   /* ============================================================
+      AUDIO CONTROLS
+   ============================================================ */
+   .controls-audio {
+     margin-top: 8px;
+     display: flex;
+     align-items: center;
+     gap: 10px;
+     justify-content: center;
+   }
+   
+   .controls-audio label {
+     font-size: 0.9em;
+   }
+   
+   #volume-slider {
+     accent-color: #1ff233; /* Green slider highlight */
+   }
+   
+   /* Selected sound effect */
+   .sound-item.selected {
+     background: #1ff233;
+     color: #000;
+     border-radius: 6px;
+   }
+   
+   /* ============================================================
+      PLAYER HIGHLIGHTING
+   ============================================================ */
+   .active-player {
+     outline: 5px solid yellow;
+     outline-offset: -5px;
+     background-color: #c9b800 !important;
+   }
+   
+   .stayed-player {
+     outline: 5px solid red;
+     outline-offset: -5px;
+     background-color: #8b0000 !important;
+   }
+   
+   /* ============================================================
+      TARGET SELECTION MODE
+   ============================================================ */
+   .target-eligible {
+     outline: 5px solid #00ffea;
+     outline-offset: -5px;
+     cursor: pointer;
+   }
+   
+   .target-ineligible {
+     opacity: 0.3;
+   }
+   
+   /* ============================================================
+      PAUSE OVERLAY (Dark screen when game is paused)
+   ============================================================ */
+   #pause-overlay {
+     position: fixed;
+     top: 0;
+     left: 0;
+     width: 100%;
+     height: 100%;
+     background: rgba(20, 20, 20, 0.85);
+     color: #fff;
+     font-size: 2em;
+     display: none;         /* Hidden until pause is activated */
+     align-items: center;
+     justify-content: center;
+     z-index: 9999;
+   }
+   
+   /* ============================================================
+      FLYING CARD ANIMATION (Used when cards move across screen)
+   ============================================================ */
+   .flying-card {
+     position: fixed;
+     width: 70px;
+     height: 100px;
+     border-radius: 6px;
+     border: 3px solid #000;
+     pointer-events: none;  /* Prevents interaction during animation */
+     z-index: 999;
+     transition: transform 0.4s ease-out, opacity 0.4s ease-out;
+   }
+   
+   /* Dealer chip icon */
+   .dealer-chip {
+     display: inline-block;
+     background: gold;
+     color: black;
+     font-weight: bold;
+     border-radius: 50%;
+     width: 22px;
+     height: 22px;
+     text-align: center;
+     line-height: 22px;
+     margin-right: 6px;
+     border: 2px solid #000;
+     box-shadow: 0 0 4px rgba(0,0,0,0.4);
+     font-size: 14px;
+   }
 
 
    
@@ -320,9 +440,7 @@ td.discard-cell {
 
 <body>
 
-<!-- ============================================================
-     PAUSE OVERLAY
-============================================================ -->
+<!-- === PAUSE OVERLAY  === -->
 <div id="pause-overlay">Game Paused — Waiting for Player…</div>
 
 <!-- ============================================================
@@ -442,7 +560,7 @@ td.discard-cell {
           <!-- Stay + Pass buttons (vertical layout) -->
           <td class="stay-cell">
             <button id="stay-button" class="stay-button">🪬 Stay</button>
-            <button id="pass-button" class="stay-button">⏭️ Pass</button>
+            <button id="pass-button" class="stay-button">➤ Pass</button>
           </td>
 
           <td id="seat6">
@@ -709,33 +827,45 @@ function renderDeck(state) {
 
   deckDiv.classList.remove("placeholder");
 
-  const topCards = state.topDrawCards || [];
-  const maxShow = Math.min(topCards.length, 5);
+   // Get the list of cards that should appear on top of the deck.
+   // If the value is missing or null, fall back to an empty array.
+   const topCards = state.topDrawCards || [];
+   
+   // We only want to visually show up to 10 stacked cards.
+   // If fewer than 10 exist, we show fewer. If more exist, we still show only 10.
+   const maxShow = Math.min(topCards.length, 10);
+   
+   // Create the stacked deck display
+   for (let i = 0; i < maxShow; i++) {
+   
+     // Create a card container <div>
+     const cardEl = document.createElement("div");
+     cardEl.classList.add("card");
+   
+     // Offset each card slightly so the stack looks layered
+     cardEl.style.top = (i * 4) + "px";
+     cardEl.style.left = (i * 4) + "px";
+   
+     if (i === 0) {
+       // ---------------------------------------------------------
+       // TOP CARD — this is the only card that should show an image
+       // ---------------------------------------------------------
+       const img = document.createElement("img");
+       img.src = "/cards/back.png";   // Card back image
+       cardEl.appendChild(img);
+   
+     } else {
+       // ---------------------------------------------------------
+       // LOWER STACKED CARDS — no image, just a blank rectangle
+       // ---------------------------------------------------------
+       cardEl.style.background = "#fff";
+       cardEl.style.border = "2px solid #000";
+     }
+   
+     // Add the card to the deck container
+     deckDiv.appendChild(cardEl);
+   }
 
-  for (let i = 0; i < maxShow; i++) {
-    const cardEl = document.createElement("div");
-    cardEl.classList.add("card");
-
-    const img = document.createElement("img");
-
-    if (i === 0) {
-      img.src = "/cards/back.png";
-    } else {
-      img.src = "";
-      img.style.background = "#fff";
-      img.style.border = "2px solid #000";
-    }
-
-    cardEl.appendChild(img);
-
-    cardEl.style.top = (i * 4) + "px";
-    cardEl.style.left = (i * 4) + "px";
-
-    deckDiv.appendChild(cardEl);
-  }
-
-  deckCountDiv.textContent = state.deckCount + " cards";
-}
 
 /* ============================================================
    RENDER DISCARD
@@ -1125,3 +1255,4 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+

@@ -1117,6 +1117,10 @@ async function getState(roomId) {
  *  SECTION 9 — EXPRESS ROUTES
  *  -----------------------------------------------------------------------------------------
  *  These routes handle:
+  *  login page calls:
+ *      • GET  /api/cards/meta
+ *      • POST /api/init-deck
+ *      • POST /api/player/join
  *      • Creating a room
  *      • Joining a room
  *      • Fetching the current game state
@@ -1131,6 +1135,132 @@ async function getState(roomId) {
  *  These routes are simple REST endpoints that prepare the player
  *  for the real‑time portion of the game.
  ********************************************************************************************/
+
+/********************************************************************************************
+ *  login page calls:
+ ********************************************************************************************/
+
+/***********************************************
+ * GET /api/cards/meta
+ * --------------------
+ * Frontend uses this to check if card_types is initialized.
+ ***********************************************/
+app.get("/api/cards/meta", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT value, filename, count FROM card_types");
+    res.json({ success: true, cards: result.rows });
+  } catch (err) {
+    console.error("meta error:", err);
+    res.json({ success: false, cards: [] });
+  }
+});
+
+
+/***********************************************
+ * POST /api/init-deck
+ * --------------------
+ * Frontend calls this ONLY if card_types is empty.
+ * It repopulates the card_types table.
+ ***********************************************/
+app.post("/api/init-deck", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM card_types");
+
+    const cards = [
+      { value: "0", filename: "0.png", count: 4 },
+      { value: "1", filename: "1.png", count: 4 },
+      { value: "2", filename: "2.png", count: 4 },
+      { value: "3", filename: "3.png", count: 4 },
+      { value: "4", filename: "4.png", count: 4 },
+      { value: "5", filename: "5.png", count: 4 },
+      { value: "6", filename: "6.png", count: 4 },
+      { value: "7", filename: "7.png", count: 4 },
+      { value: "8", filename: "8.png", count: 4 },
+      { value: "9", filename: "9.png", count: 4 },
+      { value: "10", filename: "10.png", count: 4 },
+      { value: "11", filename: "11.png", count: 4 },
+      { value: "12", filename: "12.png", count: 4 },
+
+      { value: "Swap", filename: "swap.png", count: 4 },
+      { value: "Freeze", filename: "freeze.png", count: 4 },
+      { value: "Second Chance", filename: "secondchance.png", count: 4 },
+      { value: "2x", filename: "2x.png", count: 4 },
+      { value: "4+", filename: "4plus.png", count: 4 },
+      { value: "5+", filename: "5plus.png", count: 4 },
+      { value: "6-", filename: "6minus.png", count: 4 }
+    ];
+
+    for (const c of cards) {
+      await pool.query(
+        "INSERT INTO card_types (value, filename, count) VALUES ($1, $2, $3)",
+        [c.value, c.filename, c.count]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("init-deck error:", err);
+    res.json({ success: false });
+  }
+});
+
+
+/***********************************************
+ * POST /api/player/join
+ * ----------------------
+ * This is the route login page uses.
+ *
+ * It:
+ *   • Finds the room by code
+ *   • Assigns next player_id
+ *   • Inserts player into room_players
+ *   • Redirects to table.html
+ ***********************************************/
+app.post("/api/player/join", async (req, res) => {
+  const { name, roomCode } = req.body;
+
+  try {
+    const roomRes = await pool.query(
+      "SELECT id FROM rooms WHERE code = $1",
+      [roomCode.toUpperCase()]
+    );
+
+    if (!roomRes.rows.length) {
+      return res.status(404).json({ error: "Room not found" });
+    }
+
+    const roomId = roomRes.rows[0].id;
+
+    // Count players
+    const countRes = await pool.query(
+      `SELECT COUNT(*) FROM room_players
+       WHERE room_id = $1 AND active = TRUE`,
+      [roomId]
+    );
+
+    const playerId = parseInt(countRes.rows[0].count, 10) + 1;
+    const orderIndex = playerId - 1;
+
+    // Insert player
+    await pool.query(
+      `INSERT INTO room_players (room_id, player_id, name, order_index)
+       VALUES ($1, $2, $3, $4)`,
+      [roomId, playerId, name, orderIndex]
+    );
+
+    // Redirect to table.html
+    res.json({
+      redirect: `/table.html?roomId=${roomId}&playerId=${playerId}`
+    });
+
+  } catch (err) {
+    console.error("join error:", err);
+    res.status(500).json({ error: "Failed to join room" });
+  }
+});
+
+
+
 
 
 /***********************************************
@@ -1949,5 +2079,6 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Flip‑to‑6 server running on port ${PORT}`);
 });
+
 
 

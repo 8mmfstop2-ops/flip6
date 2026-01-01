@@ -1356,19 +1356,7 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
   io.to(roomCode).emit("stateUpdate", newState);
 });
 
-
-
-    // Normal draw
-    await drawCardForPlayer(room, playerId);
-
-    const newState = await getState(room.id);
-    io.to(code).emit("stateUpdate", newState);
-
-  } catch (err) {
-    console.error("drawCard error:", err);
-  }
-});
-
+ 
 
   /**
    * STAY

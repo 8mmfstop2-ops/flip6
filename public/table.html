@@ -480,8 +480,8 @@
       <button id="mute-toggle">Mute</button>
       <label>
         Volume:
-        <input id="volume-slider" type="range" min="0" max="100" value="25">
-         <span id="volume-percent">90%</span>
+        <input id="volume-slider" type="range" min="0" max="100" value="15">
+         <span id="volume-percent">15%</span>
       </label>
       <button id="test-sounds-btn">Test Sounds</button>
     </div>
@@ -672,6 +672,8 @@ const removeBtn = document.getElementById("removeBtn");
 const pauseOverlay = document.getElementById("pause-overlay");
 const muteToggleBtn = document.getElementById("mute-toggle");
 const volumeSlider = document.getElementById("volume-slider");
+const volumePercent = document.getElementById("volume-percent");
+
 
 // Disable discard pile completely
 discardPileDiv.style.pointerEvents = "none";
@@ -729,6 +731,7 @@ volumeSlider.addEventListener("input", () => {
   volumeLevel = Math.max(0, Math.min(100, val)) / 100;
 
    volumePercent.textContent = val + "%";
+   playSound("draw");
 });
 
 muteToggleBtn.addEventListener("click", () => {
@@ -1289,6 +1292,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -910,19 +910,17 @@ function renderDeck(state) {
     const cardEl = document.createElement("div");
     cardEl.classList.add("card");
 
-    const img = document.createElement("img");
-   
-   if (i === 0) {
-     img.src = "/cards/back.png";
-     cardEl.appendChild(img);
-   } else {
-     const div = document.createElement("div");
-     div.className = "yellow-card";
-     cardEl.appendChild(div);
-   }
-
-
-    cardEl.appendChild(img);
+    if (i === 0) {
+      // Top card → real back image
+      const img = document.createElement("img");
+      img.src = "/cards/back.png";
+      cardEl.appendChild(img);
+    } else {
+      // Lower cards → yellow filler card
+      const filler = document.createElement("div");
+      filler.className = "yellow-card";
+      cardEl.appendChild(filler);
+    }
 
     // Offset each card slightly
     cardEl.style.top = (i * 4) + "px";
@@ -1468,4 +1466,5 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 

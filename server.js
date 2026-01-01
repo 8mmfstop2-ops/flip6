@@ -1353,15 +1353,22 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
     if (!isMyTurn) return;
 
     // If deck is empty → shuffle only, do NOT draw yet
-    if (state.deckCount === 0) {
-      await ensureDeck(room.id);
+if (state.deckCount === 0) {
+  // Rebuild the deck (fresh or from discard)
+  await ensureDeck(room.id);
 
-      // Send updated state so client plays shuffle sound
-      const shuffledState = await getState(room.id);
-      io.to(code).emit("stateUpdate", shuffledState);
+  // Reload updated state AFTER rebuild
+  const updatedState = await getState(room.id);
 
-      return; // <-- stop here, no draw yet
-    }
+  // Send shuffle update so client plays animation/sound
+  io.to(code).emit("stateUpdate", updatedState);
+
+  // IMPORTANT:
+  // Do NOT return here.
+  // Allow the SAME click to continue into the draw logic.
+  state = updatedState;
+}
+
 
     // Normal draw
     await drawCardForPlayer(room, playerId);
@@ -1708,5 +1715,6 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 

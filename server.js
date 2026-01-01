@@ -859,7 +859,6 @@ function computeHandScore(cards) {
   return total;
 }
 
-
 /***********************************************
  * endRound(roomId)
  * -----------------
@@ -868,11 +867,12 @@ function computeHandScore(cards) {
  *   2. Save round_scores
  *   3. Update total_score
  *   4. Reset stayed/bust flags
- *   5. Rotate round starter
+ *   5. Rotate round starter (FIXED)
  *   6. Reset deck + hands
- *   7. Start next round
+ *   7. Start next round with correct starter (FIXED)
  ***********************************************/
 async function endRound(roomId) {
+  // Load room
   const roomRes = await pool.query(
     "SELECT * FROM rooms WHERE id = $1",
     [roomId]
@@ -880,6 +880,7 @@ async function endRound(roomId) {
   if (!roomRes.rows.length) return;
   const room = roomRes.rows[0];
 
+  // Load active players
   const playersRes = await pool.query(
     `SELECT player_id, stayed, round_bust
      FROM room_players
@@ -889,7 +890,9 @@ async function endRound(roomId) {
   );
   const players = playersRes.rows;
 
-  // 1. Compute scores for each player
+  /***********************************************
+   * 1–3. Compute and save scores
+   ***********************************************/
   for (const p of players) {
     const handRes = await pool.query(
       `SELECT value
@@ -899,24 +902,14 @@ async function endRound(roomId) {
     );
 
     const cards = handRes.rows.map(r => r.value);
+    const score = p.round_bust ? 0 : computeHandScore(cards);
 
-    let score = 0;
-
-    if (p.round_bust) {
-      // Bust = automatic 0
-      score = 0;
-    } else {
-      score = computeHandScore(cards);
-    }
-
-    // 2. Save round score
     await pool.query(
       `INSERT INTO round_scores (room_id, player_id, round_number, score)
        VALUES ($1, $2, $3, $4)`,
       [roomId, p.player_id, room.round_number, score]
     );
 
-    // 3. Add to total score
     await pool.query(
       `UPDATE room_players
        SET total_score = total_score + $1
@@ -925,7 +918,9 @@ async function endRound(roomId) {
     );
   }
 
-  // 4. Reset stayed/bust flags
+  /***********************************************
+   * 4. Reset stayed/bust flags
+   ***********************************************/
   await pool.query(
     `UPDATE room_players
      SET stayed = FALSE,
@@ -934,27 +929,38 @@ async function endRound(roomId) {
     [roomId]
   );
 
-  // 5. Rotate round starter
-  const activePlayers = players.filter(p => true);
-  if (activePlayers.length > 0) {
-    const currentStarter = room.round_starter_id || activePlayers[0].player_id;
-    const idx = activePlayers.findIndex(p => p.player_id === currentStarter);
-    const nextStarter = activePlayers[(idx + 1) % activePlayers.length].player_id;
+  /***********************************************
+   * 5. Rotate round starter (FIXED)
+   *    IMPORTANT: Reload the updated starter
+   ***********************************************/
+  const starterRes = await pool.query(
+    `SELECT round_starter_id FROM rooms WHERE id = $1`,
+    [roomId]
+  );
 
-    await pool.query(
-      `UPDATE rooms
-       SET round_starter_id = $1
-       WHERE id = $2`,
-      [nextStarter, roomId]
-    );
-  }
+  const currentStarter =
+    starterRes.rows[0].round_starter_id || players[0].player_id;
 
-  // 6. Reset deck + hands
+  const idx = players.findIndex(p => p.player_id === currentStarter);
+  const nextStarter = players[(idx + 1) % players.length].player_id;
+
+  await pool.query(
+    `UPDATE rooms
+     SET round_starter_id = $1
+     WHERE id = $2`,
+    [nextStarter, roomId]
+  );
+
+  /***********************************************
+   * 6. Reset deck + hands
+   ***********************************************/
   await pool.query("DELETE FROM draw_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM discard_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM player_hands WHERE room_id = $1", [roomId]);
 
-  // 7. Start next round
+  /***********************************************
+   * 7. Start next round
+   ***********************************************/
   await pool.query(
     `UPDATE rooms
      SET round_number = round_number + 1,
@@ -964,9 +970,21 @@ async function endRound(roomId) {
     [roomId]
   );
 
-  // Ensure new deck exists
+  // Rebuild deck
   await ensureDeck(roomId);
+
+  /***********************************************
+   * Force next round to start with the NEW starter
+   ***********************************************/
+  await pool.query(
+    `UPDATE rooms
+     SET current_player_id = round_starter_id
+     WHERE id = $1`,
+    [roomId]
+  );
 }
+
+
 
 
 /********************************************************************************************
@@ -1910,7 +1928,6 @@ io.on("connection", (socket) => {
       console.error("requestState error:", err);
     }
   });
-});
 
 
 /********************************************************************************************
@@ -1933,3 +1950,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Flip‑to‑6 server running on port ${PORT}`);
 });
+

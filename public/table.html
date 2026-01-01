@@ -653,6 +653,16 @@ const volumeSlider = document.getElementById("volume-slider");
 discardPileDiv.style.pointerEvents = "none";
 discardPileDiv.style.cursor = "not-allowed";
 
+/* ============================================================
+   GLOBAL STATE REFERENCES
+============================================================ */
+let currentState = null;
+let lastState = null;
+
+// Deck thickness tracking
+let maxDeckSize = null;  // starting size of the draw pile
+let currentStep = 1;     // current CSS step class (step1–step10)
+   
 let controlsClosedOnce = false;
 
 /* ============================================================
@@ -741,11 +751,6 @@ function computeRoundScore(values) {
   return score * mult;
 }
 
-/* ============================================================
-   GLOBAL STATE REFERENCES
-============================================================ */
-let currentState = null;
-let lastState = null;
 
 /* ============================================================
    FLICK / ARC ANIMATION HELPERS
@@ -1205,6 +1210,11 @@ function detectSoundAndAnimationEvents(state) {
 socket.on("stateUpdate", (state) => {
   currentState = state;
 
+   // Capture the initial deck size once (draw pile size) 
+   if (maxDeckSize === null && state.deckCount > 0) { 
+      maxDeckSize = state.deckCount; 
+   }
+   
   detectSoundAndAnimationEvents(state);
 
   renderDeck(state);
@@ -1319,5 +1329,6 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 

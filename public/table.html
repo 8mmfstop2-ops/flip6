@@ -142,28 +142,44 @@
    /* ============================================================
       DECK AREA (Main draw pile)
    ============================================================ */
-   .deck {
-     position: relative;
-     width: 80px;           /* Container for stacked cards */
-     height: 110px;
-     margin: 40px auto;
-     cursor: pointer;
-     user-select: none;
-   }
+  /* Deck container (generic) */
+    .deck {
+      position: relative;
+      width: 80px;
+      height: 110px;
+      margin: 0 auto; /* discard pile no longer gets 40px margin */
+      cursor: pointer;
+      user-select: none;
+    }
+
+    /* Main deck only gets extra spacing */
+    #deck {
+      margin: 40px auto;
+    }
    
    /* Disabled deck (when players can't draw) */
-   .deck.disabled {
-     pointer-events: none;
-     opacity: 0.5;
-     cursor: not-allowed;
-   }
-   
-   /* Cards inside the deck stack */
-   .deck .card {
-     position: absolute;
-     top: 0;
-     left: 0;
-   }
+    .deck.disabled {
+      pointer-events: none;
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .deck .card {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transition: all 0.3s ease;
+      width: 70px;
+      height: 100px;
+      background: #fff;
+      border: 2px solid #000;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+    }
+
    
    /* ============================================================
       DECK THICKNESS STEPS
@@ -1261,6 +1277,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -1211,25 +1211,39 @@ app.post("/api/init-deck", async (req, res) => {
  * This is the route login page uses.
  *
  * It:
- *   • Finds the room by code
+ *   • First player auto creates room. If room exists → join it
  *   • Assigns next player_id
  *   • Inserts player into room_players
  *   • Redirects to table.html
  ***********************************************/
 app.post("/api/player/join", async (req, res) => {
   const { name, roomCode } = req.body;
+  const code = roomCode.toUpperCase();
 
   try {
-    const roomRes = await pool.query(
+    // Try to find the room
+    let roomRes = await pool.query(
       "SELECT id FROM rooms WHERE code = $1",
-      [roomCode.toUpperCase()]
+      [code]
     );
 
-    if (!roomRes.rows.length) {
-      return res.status(404).json({ error: "Room not found" });
-    }
+    let roomId;
 
-    const roomId = roomRes.rows[0].id;
+    if (!roomRes.rows.length) {
+      // Room does NOT exist → create it automatically
+      const createRes = await pool.query(
+        `INSERT INTO rooms (code)
+         VALUES ($1)
+         RETURNING id`,
+        [code]
+      );
+      roomId = createRes.rows[0].id;
+
+      // Ensure deck exists
+      await ensureDeck(roomId);
+    } else {
+      roomId = roomRes.rows[0].id;
+    }
 
     // Count players
     const countRes = await pool.query(
@@ -1248,7 +1262,7 @@ app.post("/api/player/join", async (req, res) => {
       [roomId, playerId, name, orderIndex]
     );
 
-    // Redirect to table.html
+    // Redirect to table
     res.json({
       redirect: `/table.html?roomId=${roomId}&playerId=${playerId}`
     });
@@ -2079,6 +2093,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Flip‑to‑6 server running on port ${PORT}`);
 });
+
 
 
 

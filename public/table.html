@@ -735,12 +735,16 @@ volumeSlider.addEventListener("input", () => {
    volumeLevel = Math.pow(val / 100, 2);
    
    volumePercent.textContent = val + "%";
-   if (val > 85) {
-     volumePercent.style.color = "red";
+   
+   if (val >= 79) {
+     volumePercent.style.color = "red";        
+   } else if (val >= 55 && val <= 65) {
+     volumePercent.style.color = "FFC340";      
    } else {
-     volumePercent.style.color = "#1ff233";
+     volumePercent.style.color = "#93FF7D";      // default green
    }
-  
+
+   
    playSound("draw");
 });
 
@@ -1302,6 +1306,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -1128,20 +1128,27 @@ app.post("/api/player/join", async (req, res) => {
   }
 });
 
-// Debug route: view draw pile
+
+// Debug route: view draw pile + discard + card_types
+// Debug route: provides drawPile for renderDeck(), and discardPile + cardTypes for renderCardStats()
 app.get("/api/room/:code/draw-pile", async (req, res) => {
   try {
     const { code } = req.params;
+
+    // 1. Find room ID
     const roomRes = await pool.query(
       "SELECT id FROM rooms WHERE code = $1",
       [code.toUpperCase()]
     );
+
     if (!roomRes.rows.length) {
-      return res.status(404).json({ error: "Room not found" });
+      return res.status(404).json({ success: false, error: "Room not found" });
     }
 
     const roomId = roomRes.rows[0].id;
-    const pileRes = await pool.query(
+
+    // 2. Fetch draw pile
+    const drawPileRes = await pool.query(
       `SELECT position, value
        FROM draw_pile
        WHERE room_id = $1
@@ -1149,12 +1156,35 @@ app.get("/api/room/:code/draw-pile", async (req, res) => {
       [roomId]
     );
 
-    res.json({ success: true, drawPile: pileRes.rows });
+    // 3. Fetch discard pile
+    const discardPileRes = await pool.query(
+      `SELECT value
+       FROM discard_pile
+       WHERE room_id = $1`,
+      [roomId]
+    );
+
+    // 4. Fetch card_types (master list)
+    const cardTypesRes = await pool.query(
+      `SELECT value, count
+       FROM card_types
+       ORDER BY value ASC`
+    );
+
+    // 5. Return all data
+    res.json({
+      success: true,
+      drawPile: drawPileRes.rows,
+      discardPile: discardPileRes.rows,
+      cardTypes: cardTypesRes.rows
+    });
+
   } catch (err) {
     console.error("draw-pile error:", err);
-    res.status(500).json({ error: "Failed to load draw pile" });
+    res.status(500).json({ success: false, error: "Failed to load draw pile" });
   }
 });
+
 
 /********************************************************************************************
  *  SECTION 11 — SOCKET.IO GAME LOGIC
@@ -1642,4 +1672,5 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 

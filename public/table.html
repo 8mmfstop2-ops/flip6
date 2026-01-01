@@ -362,7 +362,9 @@
    }
    
    #volume-slider {
-     accent-color: #1ff233; /* Green slider highlight */
+      accent-color: #1ff233; /* Green slider highlight */
+      width: 150px; /* or any fixed width you like */ 
+      flex-shrink: 0;
    }
    
    /* Selected sound effect */
@@ -729,8 +731,16 @@ function playSound(name) {
 volumeSlider.addEventListener("input", () => {
   const val = parseInt(volumeSlider.value, 10);
   volumeLevel = Math.max(0, Math.min(100, val)) / 100;
-
+   // Logarithmic curve 
+   volumeLevel = Math.pow(val / 100, 2);
+   
    volumePercent.textContent = val + "%";
+   if (val > 85) {
+     volumePercent.style.color = "red";
+   } else {
+     volumePercent.style.color = "#1ff233";
+   }
+  
    playSound("draw");
 });
 
@@ -1292,6 +1302,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

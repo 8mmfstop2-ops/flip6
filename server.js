@@ -526,27 +526,6 @@ async function advanceTurn(roomId, options = {}) {
 }
 
 
-  // Find current player index (by player_id)
-  const currentIdx = players.indexOf(room.current_player_id);
-
-  // If current player not eligible or not found, reset to first
-  if (currentIdx === -1) {
-    await pool.query(
-      `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
-      [players[0], roomId]
-    );
-    return;
-  }
-
-  // Rotate to next eligible player
-  const nextIndex = (currentIdx + 1) % players.length;
-
-  await pool.query(
-    `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
-    [players[nextIndex], roomId]
-  );
-}
-
 
 /**
  * ============================================================
@@ -1597,6 +1576,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Server running on port", PORT)
 );
+
 
 
 

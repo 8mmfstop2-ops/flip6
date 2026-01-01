@@ -82,6 +82,27 @@ app.use(bodyParser.json());
 // Serve static files from /public (table.html, JS, CSS, images)
 app.use(express.static(path.join(__dirname, "public")));
 
+// Serve the main game table page when a player visits /room/<code>
+/*
+ req.params.code:
+   - Express automatically extracts the dynamic part of the URL.
+   - For a URL like /room/ABCD, req.params.code === "ABCD".
+   - We don't actually use the code here because the frontend
+     handles reading it from the URL and connecting to the correct room.
+
+ Why this route exists:
+   - After a player joins via /api/player/join, the server redirects them
+     to /room/<code>?playerId=<id>.
+   - This route simply serves the HTML page that runs the game UI.
+   - The HTML/JS inside table.html will then connect to Socket.IO,
+     send the room code + playerId, and load the game state.
+*/
+// Send the table.html file from the /public folder.
+// path.join ensures the file path works on all operating systems.
+app.get("/room/:code", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "table.html"));
+});
+
 // PostgreSQL connection (Heroku‑style SSL enabled)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -2226,6 +2247,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Flip‑to‑6 server running on port ${PORT}`);
 });
+
 
 
 

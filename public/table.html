@@ -305,6 +305,24 @@
    /* ============================================================
       BUTTONS (Stay + End Turns)
    ============================================================ */
+   .pass-button {
+     background-color: #3f3f4f;
+     color: #fff;
+     font-size: 1.1em;
+     font-weight: bold;
+     padding: 18px 22px;
+     border: none;
+     border-radius: 8px;
+     cursor: pointer;
+     width: 100%;
+     margin-bottom: 40px;
+   }
+   
+   .pass-button:hover {
+     background-color: #1ff233;
+   }
+   
+   
    .stay-button {
      background-color: #3f3f4f;
      color: #fff;
@@ -315,12 +333,17 @@
      border-radius: 8px;
      cursor: pointer;
      width: 100%;
-     margin-bottom: 10px;
    }
    
    .stay-button:hover {
      background-color: #1ff233;
    }
+
+   #stay-button,
+   #pass-button {
+     display: none;
+   }
+
    
    .end-turns-button {
      background-color: #6D1AA1;
@@ -587,8 +610,8 @@
 
           <!-- Stay + Pass buttons (vertical layout) -->
           <td class="stay-cell">
-            <button id="stay-button" class="stay-button">🪬 Stay</button>
             <button id="pass-button" class="stay-button">➤ Pass</button>
+            <button id="stay-button" class="stay-button">🪬 Stay</button>
           </td>
 
           <td id="seat6">
@@ -1185,21 +1208,68 @@ function detectSoundAndAnimationEvents(state) {
    SOCKET STATE UPDATE
 ============================================================ */
 socket.on("stateUpdate", (state) => {
+  // Keep old deck count BEFORE overwriting currentState
+  const oldDeckCount = currentState ? currentState.deckCount : null;
+  const newDeckCount = state.deckCount;
+
   currentState = state;
 
-   // Capture the initial deck size once (draw pile size) 
-   if (maxDeckSize === null && state.deckCount > 0) { 
-      maxDeckSize = state.deckCount; 
-   }
-   
-  detectSoundAndAnimationEvents(state);
+  // Capture max deck size once
+  if (maxDeckSize === null && state.deckCount > 0) {
+    maxDeckSize = state.deckCount;
+  }
 
+  /* ============================================================
+     DETECT A REAL DRAW (server-confirmed)
+  ============================================================ */
+  if (oldDeckCount !== null && newDeckCount < oldDeckCount) {
+    if (state.currentPlayerId === playerId) {
+      hasDrawnThisTurn = true;
+
+      // Disable deck after drawing
+      const deckDiv = document.getElementById("deck");
+      deckDiv.style.pointerEvents = "none";
+      deckDiv.style.opacity = "0.5";
+    }
+  }
+
+  /* ============================================================
+     RESET DRAW FLAG WHEN TURN CHANGES
+  ============================================================ */
+  if (state.currentPlayerId !== playerId) {
+    hasDrawnThisTurn = false;
+
+    // Re-enable deck for the next time it's your turn
+    const deckDiv = document.getElementById("deck");
+    deckDiv.style.pointerEvents = "auto";
+    deckDiv.style.opacity = "1";
+  }
+
+  /* ============================================================
+     SHOW / HIDE STAY + PASS BUTTONS
+  ============================================================ */
+  const stayBtn = document.getElementById("stay-button");
+  const passBtn = document.getElementById("pass-button");
+
+  if (state.currentPlayerId === playerId && hasDrawnThisTurn) {
+    stayBtn.style.display = "inline-block";
+    passBtn.style.display = "inline-block";
+  } else {
+    stayBtn.style.display = "none";
+    passBtn.style.display = "none";
+  }
+
+  /* ============================================================
+     NORMAL RENDERING
+  ============================================================ */
+  detectSoundAndAnimationEvents(state);
   renderDeck(state);
   renderDiscard(state);
   renderPlayers(state);
   updateButtons(state);
   updatePauseOverlay(state);
 });
+
 
 /* ============================================================
    ON CONNECT → LOAD META + JOIN ROOM

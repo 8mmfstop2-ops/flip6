@@ -525,19 +525,56 @@ td.discard-cell {
   <button id="sc-no">No</button>
 </div>
 
-
-   
 <!-- ============================================================
      SOCKET.IO + GAME LOGIC
 ============================================================ -->
 <script src="/socket.io/socket.io.js"></script>
 <script>
 /* ============================================================
-   URL PARAMS
+   SIMPLE SANITIZATION HELPERS
+   (Display + wire-level; server should still validate)
+============================================================ */
+
+/**
+ * Sanitize a name for display and sending:
+ * - Remove anything except letters, numbers, spaces, underscore, hyphen
+ * - Limit to 32 characters
+ */
+function sanitizeNameSafe(input) {
+  if (typeof input !== "string") return "";
+  return input.replace(/[^A-Za-z0-9 _-]/g, "").substring(0, 32);
+}
+
+/**
+ * Sanitize room code from URL:
+ * - Only A–Z and 0–9
+ * - Uppercase
+ * - Max length 16
+ */
+function sanitizeRoomCodeSafe(input) {
+  if (typeof input !== "string") return "";
+  return input.replace(/[^A-Za-z0-9]/g, "").substring(0, 16).toUpperCase();
+}
+
+/* ============================================================
+   URL PARAMS (SANITIZED)
 ============================================================ */
 const urlParams = new URLSearchParams(window.location.search);
-const playerId = parseInt(urlParams.get("playerId"), 10);
-const roomCode = window.location.pathname.split("/").pop().toUpperCase();
+
+// Player ID from query string; ensure it is a finite positive integer
+const rawPlayerId = urlParams.get("playerId");
+const playerId = Number.isFinite(parseInt(rawPlayerId, 10))
+  ? parseInt(rawPlayerId, 10)
+  : null;
+
+// Room code taken from last segment of path; sanitize strictly
+const rawRoomCode = window.location.pathname.split("/").pop() || "";
+const roomCode = sanitizeRoomCodeSafe(rawRoomCode);
+
+// Basic guard: if we don't have valid identifiers, stop and show error
+if (!playerId || !roomCode) {
+  alert("Invalid room link. Please rejoin from the main page.");
+}
 
 /* ============================================================
    SOCKET
@@ -588,11 +625,16 @@ const sounds = {
 let isMuted = false;
 let volumeLevel = 0.9;
 
+// Preload and set initial volume
 Object.values(sounds).forEach(s => {
   s.preload = "auto";
   s.volume = volumeLevel;
 });
 
+/**
+ * Safely play a sound by name, respecting mute + volume.
+ * Clones the Audio node so overlapping sounds can play.
+ */
 function playSound(name) {
   if (isMuted) return;
   const original = sounds[name];
@@ -600,33 +642,52 @@ function playSound(name) {
 
   const s = original.cloneNode();
   s.volume = volumeLevel;
-  s.play().catch(() => {});
+  s.play().catch(() => {
+    // Ignore playback errors (e.g., autoplay restrictions)
+  });
 }
 
+// Volume slider (clamped 0–100)
 volumeSlider.addEventListener("input", () => {
   const val = parseInt(volumeSlider.value, 10);
-  volumeLevel = Math.max(0, Math.min(100, val)) / 100;
+  const clamped = Number.isFinite(val) ? Math.max(0, Math.min(100, val)) : 90;
+  volumeLevel = clamped / 100;
 });
 
+// Mute toggle
 muteToggleBtn.addEventListener("click", () => {
   isMuted = !isMuted;
   muteToggleBtn.textContent = isMuted ? "Unmute" : "Mute";
 });
+
 /* ============================================================
    CARD METADATA (value → filename)
 ============================================================ */
 let cardMeta = {};
 
+/**
+ * Load card metadata from server and build value → filename map.
+ * Server controls filenames; they are used only in src attributes.
+ */
 async function loadCardMeta() {
-  const res = await fetch("/api/cards/meta");
-  const data = await res.json();
-  if (data.success) {
-    data.cards.forEach(c => {
-      cardMeta[c.value] = c.filename;
-    });
+  try {
+    const res = await fetch("/api/cards/meta");
+    const data = await res.json();
+    if (data && data.success && Array.isArray(data.cards)) {
+      data.cards.forEach(c => {
+        if (c && typeof c.value === "string" && typeof c.filename === "string") {
+          cardMeta[c.value] = c.filename;
+        }
+      });
+    }
+  } catch (err) {
+    console.error("Error loading card metadata:", err);
   }
 }
 
+/**
+ * Get image src for a given card value; fall back to "<value>.png".
+ */
 function getCardImgSrc(value) {
   const filename = cardMeta[value] || (value + ".png");
   return "/cards/" + filename;
@@ -704,9 +765,8 @@ function animateCardToSeat(value, seatIndex) {
   const { direction, arcY } = getFlickAnimationForSeat(seatIndex);
 
   requestAnimationFrame(() => {
-    let translateX = dx;
-    let translateY = dy + arcY;
-
+    const translateX = dx;
+    const translateY = dy + arcY;
     const rotateDeg = direction === "left" ? -20 : 20;
 
     flying.style.transform = `translate(${translateX}px, ${translateY}px) rotate(${rotateDeg}deg)`;
@@ -726,8 +786,8 @@ function animateCardToSeat(value, seatIndex) {
 function renderDeck(state) {
   deckDiv.innerHTML = "";
 
-   // No deck yet 
-  if (state.deckCount === 0) {
+  // No deck yet
+  if (!state || typeof state.deckCount !== "number" || state.deckCount === 0) {
     deckDiv.classList.add("placeholder");
     deckCountDiv.textContent = "0 cards";
     return;
@@ -735,7 +795,7 @@ function renderDeck(state) {
 
   deckDiv.classList.remove("placeholder");
 
-  const topCards = state.topDrawCards || [];
+  const topCards = Array.isArray(state.topDrawCards) ? state.topDrawCards : [];
   const maxShow = Math.min(topCards.length, 5);
 
   for (let i = 0; i < maxShow; i++) {
@@ -748,10 +808,10 @@ function renderDeck(state) {
       // TOP CARD → real back.png
       img.src = "/cards/back.png";
     } else {
-      // LOWER CARDS → blank silhouette (no border, no white box)
-      img.src = "/cards/back.png";   // use back.png
-      img.style.opacity = "0.15";    // faint silhouette
-      img.style.filter = "brightness(0.4)"; // darker so it looks like depth
+      // LOWER CARDS → faint silhouette
+      img.src = "/cards/back.png";
+      img.style.opacity = "0.15";
+      img.style.filter = "brightness(0.4)";
     }
 
     cardEl.appendChild(img);
@@ -773,7 +833,7 @@ function renderDiscard(state) {
   discardPileDiv.innerHTML = "";
   discardPileDiv.classList.remove("empty");
 
-  if (state.discardCount === 0 || !state.topDiscardCard) {
+  if (!state || state.discardCount === 0 || !state.topDiscardCard) {
     discardPileDiv.classList.add("empty");
     discardCountDiv.textContent = "Discarded: 0";
     return;
@@ -791,20 +851,37 @@ function renderDiscard(state) {
 }
 
 /* ============================================================
-   RENDER PLAYERS + HANDS
+   RENDER PLAYERS + HANDS (SANITIZED)
 ============================================================ */
 function renderPlayers(state) {
+  if (!state || !Array.isArray(state.players) || !Array.isArray(state.hands)) {
+    return;
+  }
+
+  // Group hand values by player ID
   const handsByPlayer = {};
   state.hands.forEach(h => {
+    if (!h || h.player_id == null) return;
     if (!handsByPlayer[h.player_id]) handsByPlayer[h.player_id] = [];
     handsByPlayer[h.player_id].push(h.value);
   });
 
+  // Reset all seats
   seatIds.forEach(id => {
     const cell = document.getElementById(id);
+    if (!cell) return;
+
     const nameDiv = cell.querySelector(".player-name");
-    nameDiv.textContent = "Empty Seat";
-    cell.classList.remove("active-player", "stayed-player", "target-eligible", "target-ineligible");
+    if (nameDiv) {
+      nameDiv.textContent = "Empty Seat";
+    }
+
+    cell.classList.remove(
+      "active-player",
+      "stayed-player",
+      "target-eligible",
+      "target-ineligible"
+    );
 
     const slots = cell.querySelectorAll(".card-row .card");
     slots.forEach(slot => {
@@ -812,30 +889,55 @@ function renderPlayers(state) {
     });
   });
 
+  // Render seated players
   state.players.forEach((p, index) => {
-    if (index >= seatIds.length) return;
+    if (!p || index >= seatIds.length) return;
+
     const cellId = seatIds[index];
     const cell = document.getElementById(cellId);
+    if (!cell) return;
+
     const nameDiv = cell.querySelector(".player-name");
+    if (!nameDiv) return;
 
     const handValues = handsByPlayer[p.id] || [];
     const roundScore = computeRoundScore(handValues);
     const totalScore = p.total_score || 0;
+    const safeName = sanitizeNameSafe(p.name || "Player");
 
-    // DEALER CHIP
-    let dealerHTML = "";
+    // Clear any previous content (avoid innerHTML injection)
+    nameDiv.textContent = "";
+
+    // Dealer chip (if this player started the round)
     if (state.roundStarterId === p.id) {
-      dealerHTML = `<span class="dealer-chip">D</span>`;
+      const dealerSpan = document.createElement("span");
+      dealerSpan.className = "dealer-chip";
+      dealerSpan.textContent = "D";
+      nameDiv.appendChild(dealerSpan);
     }
 
-    nameDiv.innerHTML = `${dealerHTML}${p.name} — ${roundScore} / ${totalScore}`;
+    // Text: "<Name> — <roundScore> / <totalScore>"
+    const label = document.createTextNode(
+      `${safeName} — ${roundScore} / ${totalScore}`
+    );
+    nameDiv.appendChild(label);
 
-    if (p.stayed) cell.classList.add("stayed-player");
+    // Visual state: stayed / active
+    if (p.stayed) {
+      cell.classList.add("stayed-player");
+    }
 
-    if (state.currentPlayerId === p.id && !p.stayed && p.active && !state.roundOver && !state.paused) {
+    if (
+      state.currentPlayerId === p.id &&
+      !p.stayed &&
+      p.active &&
+      !state.roundOver &&
+      !state.paused
+    ) {
       cell.classList.add("active-player");
     }
 
+    // Render this player's cards into their slots
     const slots = cell.querySelectorAll(".card-row .card");
     slots.forEach((slot, i) => {
       slot.innerHTML = "";
@@ -855,22 +957,26 @@ function renderPlayers(state) {
    TARGET SELECTION MODE
 ============================================================ */
 function applyTargetSelection(state) {
+  // Clear previous targeting state and handlers
   seatIds.forEach(id => {
     const cell = document.getElementById(id);
+    if (!cell) return;
     cell.classList.remove("target-eligible", "target-ineligible");
     cell.onclick = null;
   });
 
-  if (!state.pendingActionType) return;
+  if (!state || !state.pendingActionType) return;
 
   const actorId = state.pendingActionActorId;
   const action = state.pendingActionType;
+  const players = Array.isArray(state.players) ? state.players : [];
 
-  state.players.forEach((p, index) => {
+  players.forEach((p, index) => {
+    if (!p) return;
+
     const cellId = seatIds[index];
     const cell = document.getElementById(cellId);
-
-    if (!p) return;
+    if (!cell) return;
 
     let eligible = false;
 
@@ -910,43 +1016,43 @@ function applyTargetSelection(state) {
    BUTTON ENABLE/DISABLE LOGIC
 ============================================================ */
 function updateButtons(state) {
-   const isMyTurn =
-     state.currentPlayerId === playerId &&
-     !state.roundOver &&
-     !state.paused &&
-     !state.pendingActionType;
- 
-   if (isMyTurn) {
-     deckDiv.classList.add("deck-clickable");
-   } else {
-     deckDiv.classList.remove("deck-clickable");
-   }
+  if (!state) return;
 
-   if (state.final_round) {
-  statusDiv.textContent = "FINAL ROUND — Everyone gets one last turn.";
-}
+  const isMyTurn =
+    state.currentPlayerId === playerId &&
+    !state.roundOver &&
+    !state.paused &&
+    !state.pendingActionType;
 
+  // Deck visual state
+  if (isMyTurn) {
+    deckDiv.classList.add("deck-clickable");
+  } else {
+    deckDiv.classList.remove("deck-clickable");
+  }
 
-  // game not started yet (no deck)
+  if (state.final_round) {
+    statusDiv.textContent = "FINAL ROUND — Everyone gets one last turn.";
+  }
+
   const gameNotStarted = state.deckCount === 0;
 
   // Deck clickable only on your turn
   deckDiv.classList.toggle("disabled", !isMyTurn);
 
-  // Stay + Pass buttons visible only on your turn AND game started
-   // Stay/Pass only appear AFTER drawing a card
-   if (isMyTurn && hasDrawnThisTurn && !gameNotStarted) {
-     stayButton.style.display = "block";
-     passButton.style.display = "block";
-   } else {
-     stayButton.style.display = "none";
-     passButton.style.display = "none";
-   }
+  // Stay/Pass only appear AFTER drawing a card and when game started
+  if (isMyTurn && hasDrawnThisTurn && !gameNotStarted) {
+    stayButton.style.display = "block";
+    passButton.style.display = "block";
+  } else {
+    stayButton.style.display = "none";
+    passButton.style.display = "none";
+  }
 
-  // End Round button
+  // End Round button enabled only when round is over and not paused
   endTurnsButton.disabled = !state.roundOver || state.paused;
 
-  // Status text
+  // Status logic
   if (state.paused) {
     statusDiv.textContent = "Game paused — waiting for disconnected players.";
     return;
@@ -958,33 +1064,46 @@ function updateButtons(state) {
   }
 
   if (state.pendingActionType) {
-    const actor = state.players.find(p => p.id === state.pendingActionActorId);
+    const actor = (state.players || []).find(p => p.id === state.pendingActionActorId);
+    const safeActorName = actor ? sanitizeNameSafe(actor.name) : "A player";
+
     if (actor && actor.id === playerId) {
       statusDiv.textContent = `Choose a target for ${state.pendingActionType}`;
     } else {
-      statusDiv.textContent = `${actor ? actor.name : "A player"} is choosing a target…`;
+      statusDiv.textContent = `${safeActorName} is choosing a target…`;
     }
     return;
   }
 
   if (isMyTurn && !gameNotStarted) {
-    const me = state.players.find(p => p.id === playerId);
-    statusDiv.textContent = `Your turn, ${me ? me.name : "Player"}.`;
+    const me = (state.players || []).find(p => p.id === playerId);
+    const safeMeName = me ? sanitizeNameSafe(me.name) : "Player";
+    statusDiv.textContent = `Your turn, ${safeMeName}.`;
   } else {
-    const current = state.players.find(p => p.id === state.currentPlayerId);
-    statusDiv.textContent = current ? `Current player: ${current.name}` : "Waiting for players…";
+    const current = (state.players || []).find(p => p.id === state.currentPlayerId);
+    const safeCurrentName = current ? sanitizeNameSafe(current.name) : null;
+    statusDiv.textContent = safeCurrentName
+      ? `Current player: ${safeCurrentName}`
+      : "Waiting for players…";
   }
 }
-
-
 
 /* ============================================================
    PAUSE OVERLAY
 ============================================================ */
 function updatePauseOverlay(state) {
+  if (!state) return;
+
   if (state.paused) {
-    const disconnected = state.disconnectedPlayers.map(p => p.name).join(", ");
-    pauseOverlay.textContent = `Game Paused — Waiting for ${disconnected}`;
+    const disconnectedNames = (state.disconnectedPlayers || [])
+      .map(p => sanitizeNameSafe(p.name))
+      .filter(Boolean)
+      .join(", ");
+
+    pauseOverlay.textContent = disconnectedNames
+      ? `Game Paused — Waiting for ${disconnectedNames}`
+      : "Game Paused — Waiting for players to reconnect";
+
     pauseOverlay.style.display = "flex";
   } else {
     pauseOverlay.style.display = "none";
@@ -995,6 +1114,8 @@ function updatePauseOverlay(state) {
    SOUND + ANIMATION TRIGGERS
 ============================================================ */
 function detectSoundAndAnimationEvents(state) {
+  if (!state) return;
+
   if (!lastState) {
     lastState = state;
     return;
@@ -1022,27 +1143,27 @@ function detectSoundAndAnimationEvents(state) {
     const newEntries = state.hands.slice(prevCount);
 
     newEntries.forEach(h => {
+      if (!h) return;
       const newCard = h.value;
       const playerIdOfCard = h.player_id ?? h.playerId;
 
-      const seatIndex = state.players.findIndex(p => p.id === playerIdOfCard);
+      const seatIndex = (state.players || []).findIndex(p => p.id === playerIdOfCard);
       if (seatIndex >= 0 && seatIndex < seatIds.length) {
         animateCardToSeat(newCard, seatIndex);
       }
 
-   // Delay draw-related sounds slightly so shuffle plays first
-   setTimeout(() => {
-     if (newCard === "Second Chance") {
-       playSound("secondChance");
-     } else if (newCard === "6-") {
-       playSound("sixMinus");
-     } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
-       playSound("action");
-     } else {
-       playSound("draw");
-     }
-   }, 120); // 120ms delay ensures shuffle sound plays first
-
+      // Delay draw-related sounds slightly so shuffle plays first
+      setTimeout(() => {
+        if (newCard === "Second Chance") {
+          playSound("secondChance");
+        } else if (newCard === "6-") {
+          playSound("sixMinus");
+        } else if (["Freeze", "Swap", "Take3", "Take 3"].includes(newCard)) {
+          playSound("action");
+        } else {
+          playSound("draw");
+        }
+      }, 120);
     });
   }
 
@@ -1050,28 +1171,41 @@ function detectSoundAndAnimationEvents(state) {
 }
 
 /* ============================================================
-   SOCKET STATE UPDATE
+   SOCKET STATE UPDATE (DEFENSIVE)
 ============================================================ */
 socket.on("stateUpdate", (state) => {
+  // Basic shape validation
+  if (!state || typeof state !== "object") return;
+
   currentState = state;
-   if (state.currentPlayerId !== playerId) {
-     hasDrawnThisTurn = false;
-   }
 
+  // If it's no longer our turn, reset "has drawn" flag
+  if (state.currentPlayerId !== playerId) {
+    hasDrawnThisTurn = false;
+  }
 
-   if (state.pendingActionType === "SecondChancePrompt" &&
-    state.pendingActionActorId === playerId) {
-  document.getElementById("second-chance-popup").style.display = "block";
-}
+  // Second Chance popup only for the acting player
+  if (
+    state.pendingActionType === "SecondChancePrompt" &&
+    state.pendingActionActorId === playerId
+  ) {
+    document.getElementById("second-chance-popup").style.display = "block";
+  } else {
+    document.getElementById("second-chance-popup").style.display = "none";
+  }
 
-   if (state.final_round) {
-  document.body.classList.add("final-round");
-} else {
-  document.body.classList.remove("final-round");
-}
+  // Final round visual cue
+  if (state.final_round) {
+    document.body.classList.add("final-round");
+  } else {
+    document.body.classList.remove("final-round");
+  }
 
-  document.getElementById("round-display").textContent =
-    "Round " + state.roundNumber;
+  // Round display
+  const roundDisplay = document.getElementById("round-display");
+  if (roundDisplay) {
+    roundDisplay.textContent = "Round " + (state.roundNumber || 1);
+  }
 
   detectSoundAndAnimationEvents(state);
   renderDeck(state);
@@ -1085,7 +1219,12 @@ socket.on("stateUpdate", (state) => {
    ON CONNECT → LOAD META + JOIN ROOM
 ============================================================ */
 socket.on("connect", async () => {
+  // If identifiers are invalid, don't try to join
+  if (!playerId || !roomCode) return;
+
   await loadCardMeta();
+
+  // Use sanitized roomCode and numeric playerId
   socket.emit("joinRoom", { roomCode, playerId });
 });
 
@@ -1093,9 +1232,9 @@ socket.on("connect", async () => {
    UI EVENTS
 ============================================================ */
 
-// Draw card  
+// Draw card
 deckDiv.addEventListener("click", () => {
- //safety check that prevents the deck click handler from running before the game is ready.
+  // Safety check: ensure we have state before interacting
   if (!currentState) return;
 
   const isMyTurn =
@@ -1106,16 +1245,13 @@ deckDiv.addEventListener("click", () => {
 
   if (!isMyTurn) return;
 
-  // NEW: prevent multiple draws
+  // Prevent multiple draws per turn client-side
   if (hasDrawnThisTurn) return;
-
   hasDrawnThisTurn = true;
 
   socket.emit("drawCard", { roomCode, playerId });
 });
 
-
-   
 // Stay
 stayButton.addEventListener("click", () => {
   if (!currentState) return;
@@ -1148,9 +1284,11 @@ passButton.addEventListener("click", () => {
 
 // End Round
 endTurnsButton.addEventListener("click", () => {
+  if (!roomCode) return;
   socket.emit("endRound", { roomCode });
 });
 
+// Second Chance responses
 document.getElementById("sc-yes").onclick = () => {
   socket.emit("secondChanceResponse", { roomCode, playerId, use: true });
   document.getElementById("second-chance-popup").style.display = "none";
@@ -1161,45 +1299,46 @@ document.getElementById("sc-no").onclick = () => {
   document.getElementById("second-chance-popup").style.display = "none";
 };
 
-
-
-
-   
 // Test Sounds Popup
 const testSoundsBtn = document.getElementById("test-sounds-btn");
 const soundPopup = document.getElementById("sound-popup");
 const closeSoundPopup = document.getElementById("close-sound-popup");
 
-testSoundsBtn.addEventListener("click", () => {
-  soundPopup.style.display = "block";
-});
-
-closeSoundPopup.addEventListener("click", () => {
-  soundPopup.style.display = "none";
-});
-
-// Play sound when clicking a sound name
-document.querySelectorAll(".sound-item").forEach(item => {
-  item.addEventListener("click", () => {
-    const soundName = item.getAttribute("data-sound");
-    playSound(soundName);
-
-    document.querySelectorAll(".sound-item").forEach(i => i.classList.remove("selected"));
-    item.classList.add("selected");
+if (testSoundsBtn && soundPopup && closeSoundPopup) {
+  testSoundsBtn.addEventListener("click", () => {
+    soundPopup.style.display = "block";
   });
-});
 
-// Remove player
+  closeSoundPopup.addEventListener("click", () => {
+    soundPopup.style.display = "none";
+  });
+
+  // Play sound when clicking a sound name
+  document.querySelectorAll(".sound-item").forEach(item => {
+    item.addEventListener("click", () => {
+      const soundName = item.getAttribute("data-sound");
+      if (soundName) {
+        playSound(soundName);
+      }
+
+      document.querySelectorAll(".sound-item").forEach(i =>
+        i.classList.remove("selected")
+      );
+      item.classList.add("selected");
+    });
+  });
+}
+
+// Remove player (admin control)
 removeBtn.addEventListener("click", () => {
-  const name = removeNameInput.value.trim();
-  if (!name) return;
-  socket.emit("removePlayer", { roomCode, name });
+  const rawName = removeNameInput.value.trim();
+  const safeName = sanitizeNameSafe(rawName);
+  if (!safeName || !roomCode) return;
+
+  socket.emit("removePlayer", { roomCode, name: safeName });
   removeNameInput.value = "";
 });
 
-
-
-   
 /* ============================================================
    INITIAL STATUS
 ============================================================ */
@@ -1209,6 +1348,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

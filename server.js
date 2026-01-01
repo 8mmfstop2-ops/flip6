@@ -1208,7 +1208,8 @@ app.post("/api/init-deck", async (req, res) => {
 /***********************************************
  * POST /api/player/join
  * ----------------------
- * This is the route login page uses.
+ * Handle POST requests for joining (or creating) a room.
+ * This is the route login page uses. 
  *
  * It:
  *   • First player auto creates room. If room exists → join it
@@ -1217,62 +1218,132 @@ app.post("/api/init-deck", async (req, res) => {
  *   • Redirects to table.html
  ***********************************************/
 app.post("/api/player/join", async (req, res) => {
-  const { name, roomCode } = req.body;
-  const code = roomCode.toUpperCase();
-
   try {
-    // Try to find the room
-    let roomRes = await pool.query(
-      "SELECT id FROM rooms WHERE code = $1",
+    // Extract name and roomCode from the request body.
+    const { name, roomCode } = req.body;
+
+    // Normalize the room code:
+    // - Convert null/undefined to empty string
+    // - Trim whitespace
+    // - Convert to uppercase so codes are case‑insensitive
+    const code = String(roomCode || "").trim().toUpperCase();
+
+    // Normalize the player's name:
+    // - Convert null/undefined to empty string
+    // - Trim whitespace
+    const cleanName = String(name || "").trim();
+
+    // Basic validation: both name and room code must be provided.
+    if (!cleanName || !code) {
+      return res
+        .status(400)
+        .json({ error: "Missing name or room code." });
+    }
+
+    // Check if a room with this code already exists.
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
       [code]
     );
 
-    let roomId;
+    let room;
 
+    // If the room does NOT exist, create a new one.
     if (!roomRes.rows.length) {
-      // Room does NOT exist → create it automatically
       const createRes = await pool.query(
-        `INSERT INTO rooms (code)
-         VALUES ($1)
-         RETURNING id`,
+        `INSERT INTO rooms (code, locked, round_number, round_over, paused)
+         VALUES ($1, FALSE, 1, FALSE, FALSE)
+         RETURNING *`,
         [code]
       );
-      roomId = createRes.rows[0].id;
-
-      // Ensure deck exists
-      await ensureDeck(roomId);
+      room = createRes.rows[0];
     } else {
-      roomId = roomRes.rows[0].id;
+      // Otherwise, use the existing room.
+      room = roomRes.rows[0];
     }
 
-    // Count players
-    const countRes = await pool.query(
-      `SELECT COUNT(*) FROM room_players
-       WHERE room_id = $1 AND active = TRUE`,
-      [roomId]
+    // Check if a player with the same name already exists in this room.
+    // LOWER(name) ensures case‑insensitive comparison.
+    const dupRes = await pool.query(
+      `SELECT player_id, connected
+       FROM room_players
+       WHERE room_id = $1
+         AND LOWER(name) = LOWER($2)
+         AND active = TRUE`,
+      [room.id, cleanName]
     );
 
-    const playerId = parseInt(countRes.rows[0].count, 10) + 1;
-    const orderIndex = playerId - 1;
+    let playerId;
 
-    // Insert player
-    await pool.query(
-      `INSERT INTO room_players (room_id, player_id, name, order_index)
-       VALUES ($1, $2, $3, $4)`,
-      [roomId, playerId, name, orderIndex]
-    );
+    // If a matching player already exists...
+    if (dupRes.rows.length > 0) {
+      const existing = dupRes.rows[0];
 
-    // Redirect to table
-    res.json({
-      redirect: `/table.html?roomId=${roomId}&playerId=${playerId}`
+      // If they are currently connected, block duplicate login.
+      if (existing.connected) {
+        return res.status(400).json({
+          error: "A player by that name is already in the room."
+        });
+      }
+
+      // Otherwise, allow them to rejoin using the same player ID.
+      playerId = existing.player_id;
+
+    } else {
+      // No duplicate found — this is a brand‑new player.
+
+      // If the room is locked, new players cannot join.
+      if (room.locked) {
+        return res.status(400).json({
+          error: "This room is locked. Only existing players can rejoin."
+        });
+      }
+
+      // Insert a new player into the room.
+      // player_id is assigned as (max existing ID + 1) or 1 if none exist.
+      // order_index determines turn order and increments similarly.
+      const insertRes = await pool.query(
+        `
+        INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
+        VALUES (
+          $1,
+          COALESCE(
+            (SELECT MAX(player_id) + 1 FROM room_players WHERE room_id = $1),
+            1
+          ),
+          $2,
+          COALESCE(
+            (SELECT MAX(order_index) + 1 FROM room_players WHERE room_id = $1),
+            0
+          ),
+          TRUE,
+          FALSE
+        )
+        RETURNING player_id
+        `,
+        [room.id, cleanName]
+      );
+
+      // Save the newly assigned player ID.
+      playerId = insertRes.rows[0].player_id;
+    }
+
+    // Respond with a redirect URL the frontend can use.
+    // The playerId is included so the client knows who they are.
+    return res.json({
+      redirect: `/room/${code}?playerId=${playerId}`
     });
 
   } catch (err) {
-    console.error("join error:", err);
-    res.status(500).json({ error: "Failed to join room" });
+    // Log unexpected errors for debugging.
+    console.error("JOIN ERROR:", err);
+
+    // Send a generic error response to the client.
+    res.status(500).json({
+      error: "JOIN ERROR: " + err.message
+    });
   }
 });
-
 
 
 
@@ -1438,44 +1509,106 @@ io.on("connection", (socket) => {
   }
 
   /******************************************************************************************
-   * EVENT: joinRoom
-   * ----------------
-   * The client calls this immediately after joining via HTTP.
-   *
-   * DATA:
-   *   { roomId, playerId }
-   *
-   * BEHAVIOR:
-   *   - Marks the player as connected
-   *   - Stores socket_id
-   *   - Joins the socket.io room
-   *   - Recomputes pause state
-   *   - Emits updated state
-   ******************************************************************************************/
-  socket.on("joinRoom", async ({ roomId, playerId }) => {
-    try {
-      // Mark player as connected
-      await pool.query(
-        `UPDATE room_players
-         SET connected = TRUE,
-             socket_id = $1
-         WHERE room_id = $2 AND player_id = $3`,
-        [socket.id, roomId, playerId]
-      );
+ * EVENT: joinRoom
+ * ----------------
+ * The client calls this immediately after joining via HTTP.
+ *
+ * DATA:
+ *   { roomId, playerId }
+ *
+ * BEHAVIOR:
+ *   - Validates room + player exist
+ *   - Handles stale socket_id (old tab still marked connected)
+ *   - Marks the player as connected
+ *   - Stores the new socket_id
+ *   - Joins the socket.io room
+ *   - Recomputes pause state
+ *   - Initializes turn order if needed
+ *   - Emits updated state to all players
+ ******************************************************************************************/
+// Listen for a client asking to join a room.
+// The client sends { roomCode, playerId } as data.
+socket.on("joinRoom", async ({ roomCode, playerId }) => {
+  try {
+    // Normalize the room code:
+    // - Convert undefined/null to empty string
+    // - Trim whitespace
+    // - Convert to uppercase so codes are case‑insensitive
+    const code = String(roomCode || "").trim().toUpperCase();
 
-      // Join socket.io room
-      socket.join(`room_${roomId}`);
+    // Look up the room in the database using the code.
+    // If no room exists, stop here (invalid room code).
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
+    if (!roomRes.rows.length) return; // Room not found
+    const room = roomRes.rows[0];
 
-      // Recompute pause state
-      await recomputePause(roomId);
+    // Check if this player exists in the room AND is marked as active.
+    // This prevents inactive or removed players from joining.
+    const playerRes = await pool.query(
+      `SELECT * FROM room_players
+       WHERE player_id = $1 AND room_id = $2 AND active = TRUE`,
+      [playerId, room.id]
+    );
+    if (!playerRes.rows.length) return; // Player not found or inactive
 
-      // Emit updated state
-      await emitState(roomId);
-    } catch (err) {
-      console.error("joinRoom error:", err);
+    const player = playerRes.rows[0];
+
+    // If the player is already connected on another device,
+    // block this login attempt to prevent duplicate sessions.
+    if (player.connected && player.socket_id && player.socket_id !== socket.id) {
+      socket.emit("joinError", {
+        message: "This player is already signed in on another device."
+      });
+      return;
     }
-  });
 
+    // Update the player's record:
+    // - Save the current socket ID (so we know which connection is theirs)
+    // - Mark them as connected
+    await pool.query(
+      `UPDATE room_players
+       SET socket_id = $1, connected = TRUE
+       WHERE player_id = $2 AND room_id = $3`,
+      [socket.id, playerId, room.id]
+    );
+
+    // Recalculate whether the room should be paused.
+    // (Your game logic likely pauses when players disconnect.)
+    await recomputePause(room.id);
+
+    // Add this socket to the room's Socket.IO channel.
+    // This allows broadcasting updates to everyone in the room.
+    socket.join(code);
+
+    // Fetch the latest room data after updates.
+    const freshRoomRes = await pool.query(
+      "SELECT * FROM rooms WHERE id = $1",
+      [room.id]
+    );
+    const freshRoom = freshRoomRes.rows[0];
+
+    // If the game hasn't started yet (no current player)
+    // and the round isn't over, automatically advance to the first turn.
+    if (!freshRoom.current_player_id && !freshRoom.round_over) {
+      await advanceTurn(room.id);
+    }
+
+    // Build the full game state to send to all players.
+    const state = await getState(room.id);
+
+    // Broadcast the updated state to everyone in the room.
+    io.to(code).emit("stateUpdate", state);
+
+  } catch (err) {
+    // Log unexpected errors so you can debug them.
+    console.error("joinRoom error:", err);
+  }
+});
+
+ 
   /******************************************************************************************
    * EVENT: disconnect
    * ------------------
@@ -2093,6 +2226,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Flip‑to‑6 server running on port ${PORT}`);
 });
+
 
 
 

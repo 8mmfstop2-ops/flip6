@@ -371,6 +371,14 @@
      color: #000;
      border-radius: 6px;
    }
+
+   #volume-percent {
+     margin-left: 4px;
+     color: #fff;
+     opacity: 0.8;
+     font-size: 0.9em;
+   }
+
    
    /* ============================================================
       PLAYER HIGHLIGHTING
@@ -473,6 +481,7 @@
       <label>
         Volume:
         <input id="volume-slider" type="range" min="0" max="100" value="25">
+         <span id="volume-percent">90%</span>
       </label>
       <button id="test-sounds-btn">Test Sounds</button>
     </div>
@@ -718,6 +727,8 @@ function playSound(name) {
 volumeSlider.addEventListener("input", () => {
   const val = parseInt(volumeSlider.value, 10);
   volumeLevel = Math.max(0, Math.min(100, val)) / 100;
+
+   volumePercent.textContent = val + "%";
 });
 
 muteToggleBtn.addEventListener("click", () => {
@@ -1278,6 +1289,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

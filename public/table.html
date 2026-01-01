@@ -818,12 +818,47 @@ function animateCardToSeat(value, seatIndex) {
 /* ============================================================
    RENDER DECK
 ============================================================ */
-
 function renderDeck(state) {
-  // Clear any previous cards from the deck container
-  deckDiv.innerHTML = "";
 
-  // Handle empty deck
+  // =============================================================
+  // 1. UPDATE DECK THICKNESS (step1–step10)
+  // =============================================================
+
+  if (!maxDeckSize && state.deckCount > 0) {
+    maxDeckSize = state.deckCount;
+  }
+
+  const totalCards = state.deckCount;
+  const percent = maxDeckSize ? (totalCards / maxDeckSize) * 100 : 0;
+
+  let newStep;
+
+  if (totalCards === 0) newStep = 10;
+  else if (percent > 90) newStep = 1;
+  else if (percent > 75) newStep = 2;
+  else if (percent > 60) newStep = 3;
+  else if (percent > 50) newStep = 4;
+  else if (percent > 40) newStep = 5;
+  else if (percent > 30) newStep = 6;
+  else if (percent > 20) newStep = 7;
+  else if (percent > 10) newStep = 8;
+  else newStep = 9;
+
+  deckDiv.classList.remove(`step${currentStep}`);
+  currentStep = newStep;
+  deckDiv.classList.add(`step${currentStep}`);
+
+  // =============================================================
+  // 2. CLEAR ONLY THE TOP CARD — NOT THE DYNAMIC STACK
+  // =============================================================
+
+  // Remove only the previous top card, not the whole deck
+  const oldTop = deckDiv.querySelector(".top-card");
+  if (oldTop) oldTop.remove();
+
+  // =============================================================
+  // 3. HANDLE EMPTY DECK
+  // =============================================================
   if (state.deckCount === 0) {
     deckDiv.classList.add("placeholder");
     deckCountDiv.textContent = "0 cards";
@@ -832,48 +867,24 @@ function renderDeck(state) {
 
   deckDiv.classList.remove("placeholder");
 
-  // ------------------------------
-  // DYNAMIC THICKNESS (step1–step10)
-  // ------------------------------
+  // =============================================================
+  // 4. DRAW ONLY THE TOP CARD (BACK)
+  // =============================================================
 
-  // If maxDeckSize hasn't been set yet (start of round),
-  // initialize it from the current deckCount.
-  if (!maxDeckSize && state.deckCount > 0) {
-    maxDeckSize = state.deckCount;
-  }
+  const topCard = document.createElement("div");
+  topCard.classList.add("top-card");
 
-  const totalCards = state.deckCount;
+  const img = document.createElement("img");
+  img.src = "/cards/back.png";
+  topCard.appendChild(img);
 
-  // Protect against divide-by-zero if something weird happens
-  const percent = maxDeckSize ? (totalCards / maxDeckSize) * 100 : 0;
+  deckDiv.appendChild(topCard);
 
-  let newStep;
-
-  if (totalCards === 0) newStep = 10;        // empty
-  else if (percent > 90) newStep = 1;        // 90–100%
-  else if (percent > 75) newStep = 2;        // 75–90%
-  else if (percent > 60) newStep = 3;        // 60–75%
-  else if (percent > 50) newStep = 4;        // 50–60%
-  else if (percent > 40) newStep = 5;        // 40–50%
-  else if (percent > 30) newStep = 6;        // 30–40%
-  else if (percent > 20) newStep = 7;        // 20–30%
-  else if (percent > 10) newStep = 8;        // 10–20%
-  else newStep = 9;                          // 1–10%
-
-  // Remove old thickness class, if any
-  deckDiv.classList.remove(`step${currentStep}`);
-
-  // Update tracker
-  currentStep = newStep;
-
-  // Add new thickness class (CSS handles visual/animation)
-  deckDiv.classList.add(`step${currentStep}`);
-
-
-  // Update count label
+  // =============================================================
+  // 5. UPDATE CARD COUNT LABEL
+  // =============================================================
   deckCountDiv.textContent = state.deckCount + " cards";
 }
-
 
 
 
@@ -1273,6 +1284,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

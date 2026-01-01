@@ -1061,14 +1061,15 @@ app.post("/api/player/join", async (req, res) => {
 
     // Look for any active player with this name in the room.
     // 'connected' flag is used below to decide between error vs reconnect.
-    const dupRes = await pool.query(
-      `SELECT player_id, connected
-       FROM room_players
-       WHERE room_id = $1
-         AND LOWER(name) = LOWER($2)
-         AND active = TRUE`,
-      [room.id, cleanName]
-    );
+  const dupRes = await pool.query(
+    `SELECT player_id, connected
+     FROM room_players
+     WHERE room_id = $1
+       AND LOWER(name) = LOWER($2)
+       AND active = TRUE
+       AND connected = TRUE`,
+    [room.id, cleanName]
+  );
 
     let playerId;
 
@@ -1641,3 +1642,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+

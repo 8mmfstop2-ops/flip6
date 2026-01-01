@@ -1328,46 +1328,34 @@ io.on("connection", socket => {
  *   - If deck is empty → shuffle only (no draw yet)
  */
 socket.on("drawCard", async ({ roomCode, playerId }) => {
-  try {
-    const code = String(roomCode || "").trim().toUpperCase();
+  const room = await getRoom(roomCode);
+  let state = await getState(room.id);
 
-    // Load room
-    const roomRes = await pool.query(
-      "SELECT * FROM rooms WHERE code = $1",
-      [code]
-    );
-    if (!roomRes.rows.length) return;
-    const room = roomRes.rows[0];
+  // 1. Validate turn
+  const isMyTurn =
+    state.currentPlayerId === playerId &&
+    !state.roundOver &&
+    !state.paused &&
+    !state.pendingActionType;
 
-    // Load state
-    const state = await getState(room.id);
-    if (!state) return;
+  if (!isMyTurn) return;
 
-    // Validate turn
-    const isMyTurn =
-      state.currentPlayerId === playerId &&
-      !state.roundOver &&
-      !state.paused &&
-      !state.pendingActionType;
+  // 2. If deck is empty → rebuild it
+  if (state.deckCount === 0) {
+    await ensureDeck(room.id);
 
-    if (!isMyTurn) return;
+    // Reload state AFTER shuffle
+    state = await getState(room.id);
+  }
 
-    // If deck is empty → shuffle only, do NOT draw yet
-if (state.deckCount === 0) {
-  // Rebuild the deck (fresh or from discard)
-  await ensureDeck(room.id);
+  // 3. Now draw the card (same click)
+  await drawCardForPlayer(room, playerId);
 
-  // Reload updated state AFTER rebuild
-  const updatedState = await getState(room.id);
+  // 4. Send final state (this is when buttons appear)
+  const newState = await getState(room.id);
+  io.to(roomCode).emit("stateUpdate", newState);
+});
 
-  // Send shuffle update so client plays animation/sound
-  io.to(code).emit("stateUpdate", updatedState);
-
-  // IMPORTANT:
-  // Do NOT return here.
-  // Allow the SAME click to continue into the draw logic.
-  state = updatedState;
-}
 
 
     // Normal draw
@@ -1715,6 +1703,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

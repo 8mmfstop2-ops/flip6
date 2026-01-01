@@ -823,39 +823,33 @@ function renderDeck(state) {
   // =============================================================
   // 1. UPDATE DECK THICKNESS (step1–step10)
   // =============================================================
-  // Only run thickness logic if the deck has been initialized.
-  if (maxDeckSize) {
 
-    const totalCards = state.deckCount;
-    const percent = (totalCards / maxDeckSize) * 100;
-
-    let newStep;
-
-    // -----------------------------------------------------------
-    // Determine which visual thickness step to use.
-    // step1  = very thick (full deck)
-    // step10 = empty deck
-    // -----------------------------------------------------------
-    if (totalCards === 0) newStep = 10;
-    else if (percent > 90) newStep = 1;
-    else if (percent > 75) newStep = 2;
-    else if (percent > 60) newStep = 3;
-    else if (percent > 50) newStep = 4;
-    else if (percent > 40) newStep = 5;
-    else if (percent > 30) newStep = 6;
-    else if (percent > 20) newStep = 7;
-    else if (percent > 10) newStep = 8;
-    else newStep = 9;
-
-    // Remove old step class
-    deckDiv.classList.remove(`step${currentStep}`);
-
-    // Update tracker
-    currentStep = newStep;
-
-    // Add new step class (CSS transition animates the change)
-    deckDiv.classList.add(`step${currentStep}`);
+  // Initialize maxDeckSize the first time a deck appears
+  if (!maxDeckSize && state.deckCount > 0) {
+    maxDeckSize = state.deckCount;
   }
+
+  // Compute thickness step
+  const totalCards = state.deckCount;
+  const percent = (totalCards / maxDeckSize) * 100;
+
+  let newStep;
+
+  if (totalCards === 0) newStep = 10;
+  else if (percent > 90) newStep = 1;
+  else if (percent > 75) newStep = 2;
+  else if (percent > 60) newStep = 3;
+  else if (percent > 50) newStep = 4;
+  else if (percent > 40) newStep = 5;
+  else if (percent > 30) newStep = 6;
+  else if (percent > 20) newStep = 7;
+  else if (percent > 10) newStep = 8;
+  else newStep = 9;
+
+  // Apply CSS step class
+  deckDiv.classList.remove(`step${currentStep}`);
+  currentStep = newStep;
+  deckDiv.classList.add(`step${currentStep}`);
 
   // =============================================================
   // 2. CLEAR THE DECK AREA
@@ -874,22 +868,31 @@ function renderDeck(state) {
   deckDiv.classList.remove("placeholder");
 
   // =============================================================
-  // 4. DETERMINE HOW MANY CARDS TO DISPLAY
+  // 4. DYNAMIC STACK BASED ON THICKNESS STEP
   // =============================================================
-  // We still show up to 10 layers visually, but the CSS step class
-  // controls how thick the deck *looks*.
-  const topCards = state.topDrawCards || [];
-  const maxShow = Math.min(topCards.length, 10);
 
-  // =============================================================
-  // 5. DRAW THE STACKED CARDS
-  // =============================================================
+  // Map step → number of visible layers
+  const stepToLayers = {
+    1: 10,  // very thick
+    2: 9,
+    3: 8,
+    4: 7,
+    5: 6,
+    6: 5,
+    7: 4,
+    8: 3,
+    9: 2,
+    10: 1  // almost empty
+  };
+
+  const maxShow = stepToLayers[currentStep];
+
   for (let i = 0; i < maxShow; i++) {
 
     const cardEl = document.createElement("div");
     cardEl.classList.add("card");
 
-    // Slight offset for stacked look
+    // Offset for stacked look
     cardEl.style.top = (i * 4) + "px";
     cardEl.style.left = (i * 4) + "px";
 
@@ -908,10 +911,11 @@ function renderDeck(state) {
   }
 
   // =============================================================
-  // 6. UPDATE CARD COUNT LABEL
+  // 5. UPDATE CARD COUNT LABEL
   // =============================================================
   deckCountDiv.textContent = state.deckCount + " cards";
 }
+
 
 
 /* ============================================================
@@ -1310,6 +1314,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

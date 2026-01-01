@@ -1225,42 +1225,60 @@ io.on("connection", socket => {
     }
   });
 
-  /**
-   * DRAW CARD
-   *   - Only current player
-   *   - Not paused
-   *   - No pending_action_type
-   */
-  socket.on("drawCard", async ({ roomCode, playerId }) => {
-    try {
-      const code = String(roomCode || "").trim().toUpperCase();
+/**
+ * DRAW CARD
+ *   - Only current player
+ *   - Not paused
+ *   - No pending_action_type
+ *   - If deck is empty → shuffle only (no draw yet)
+ */
+socket.on("drawCard", async ({ roomCode, playerId }) => {
+  try {
+    const code = String(roomCode || "").trim().toUpperCase();
 
-      const roomRes = await pool.query(
-        "SELECT * FROM rooms WHERE code = $1",
-        [code]
-      );
-      if (!roomRes.rows.length) return;
-      const room = roomRes.rows[0];
+    // Load room
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
+    if (!roomRes.rows.length) return;
+    const room = roomRes.rows[0];
 
-      const state = await getState(room.id);
-      if (!state) return;
+    // Load state
+    const state = await getState(room.id);
+    if (!state) return;
 
-      const isMyTurn =
-        state.currentPlayerId === playerId &&
-        !state.roundOver &&
-        !state.paused &&
-        !state.pendingActionType;
+    // Validate turn
+    const isMyTurn =
+      state.currentPlayerId === playerId &&
+      !state.roundOver &&
+      !state.paused &&
+      !state.pendingActionType;
 
-      if (!isMyTurn) return;
+    if (!isMyTurn) return;
 
-      await drawCardForPlayer(room, playerId);
+    // If deck is empty → shuffle only, do NOT draw yet
+    if (state.deckCount === 0) {
+      await ensureDeck(room.id);
 
-      const newState = await getState(room.id);
-      io.to(code).emit("stateUpdate", newState);
-    } catch (err) {
-      console.error("drawCard error:", err);
+      // Send updated state so client plays shuffle sound
+      const shuffledState = await getState(room.id);
+      io.to(code).emit("stateUpdate", shuffledState);
+
+      return; // <-- stop here, no draw yet
     }
-  });
+
+    // Normal draw
+    await drawCardForPlayer(room, playerId);
+
+    const newState = await getState(room.id);
+    io.to(code).emit("stateUpdate", newState);
+
+  } catch (err) {
+    console.error("drawCard error:", err);
+  }
+});
+
 
   /**
    * STAY
@@ -1595,3 +1613,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+

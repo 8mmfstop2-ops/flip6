@@ -807,6 +807,9 @@ function animateCardToSeat(value, seatIndex) {
   }, 450);
 }
 
+
+
+   
 /* ============================================================
    RENDER DECK
 ============================================================ */
@@ -891,6 +894,65 @@ function renderDiscard(state) {
   discardCountDiv.textContent = "Discarded: " + state.discardCount;
 }
 
+
+// -------------------------------------------------------------
+// UPDATE DECK THICKNESS STEP
+// -------------------------------------------------------------
+// This function updates the CSS class on the deck (<div id="deck">)
+// so the deck visually appears thicker or thinner depending on
+// how many cards remain in the draw pile.
+//
+// It uses `maxDeckSize` (the starting deck size for the round)
+// and compares it to the current `state.deckCount`.
+// -------------------------------------------------------------
+function updateDeckStep(state) {
+
+  // If maxDeckSize hasn't been set yet (e.g., before game start),
+  // exit early so we don't divide by zero or apply wrong classes.
+  if (!maxDeckSize) return;
+
+  // How many cards are currently left in the draw pile.
+  const totalCards = state.deckCount;
+
+  // Percentage of the deck remaining (0–100%).
+  const percent = (totalCards / maxDeckSize) * 100;
+
+  // This will become the new CSS step class (step1–step10).
+  let newStep;
+
+  // -----------------------------------------------------------
+  // Determine which visual thickness step to use.
+  // step1 = very thick (full deck)
+  // step10 = empty deck
+  // -----------------------------------------------------------
+
+  if (totalCards === 0) newStep = 10;        // No cards left → empty deck
+  else if (percent > 90) newStep = 1;        // 90–100% full
+  else if (percent > 75) newStep = 2;        // 75–90% full
+  else if (percent > 60) newStep = 3;        // 60–75% full
+  else if (percent > 50) newStep = 4;        // 50–60% full
+  else if (percent > 40) newStep = 5;        // 40–50% full
+  else if (percent > 30) newStep = 6;        // 30–40% full
+  else if (percent > 20) newStep = 7;        // 20–30% full
+  else if (percent > 10) newStep = 8;        // 10–20% full
+  else newStep = 9;                          // 1–10% full
+
+  // -----------------------------------------------------------
+  // Apply the new CSS class to the deck container.
+  // This changes how the stacked cards are offset in CSS.
+  // -----------------------------------------------------------
+
+  // Remove the old step class (step1–step10)
+  deckDiv.classList.remove(`step${currentStep}`);
+
+  // Update the global tracker
+  currentStep = newStep;
+
+  // Add the new step class
+  deckDiv.classList.add(`step${currentStep}`);
+}
+ 
+   
 /* ============================================================
    RENDER PLAYERS + HANDS
 ============================================================ */
@@ -1093,6 +1155,7 @@ function detectSoundAndAnimationEvents(state) {
   // Deck creation / shuffle
   if (lastState.deckCount === 0 && state.deckCount > 0) {
     playSound("shuffle");
+    updateDeckStep(state);
   }
 
   // Bust detection
@@ -1108,6 +1171,7 @@ function detectSoundAndAnimationEvents(state) {
 
   // Detect new cards drawn
   if ((state.hands || []).length > (lastState.hands || []).length) {
+    updateDeckStep(state);
     const prevCount = lastState.hands.length;
     const newEntries = state.hands.slice(prevCount);
 
@@ -1255,4 +1319,5 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 

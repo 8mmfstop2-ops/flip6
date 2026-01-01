@@ -869,17 +869,6 @@ function renderDeck(state) {
   // Add new thickness class (CSS handles visual/animation)
   deckDiv.classList.add(`step${currentStep}`);
 
-  // ------------------------------
-  // Draw just the top card (back)
-  // ------------------------------
-  const cardEl = document.createElement("div");
-  cardEl.classList.add("card");
-
-  const img = document.createElement("img");
-  img.src = "/cards/back.png";
-  cardEl.appendChild(img);
-
-  deckDiv.appendChild(cardEl);
 
   // Update count label
   deckCountDiv.textContent = state.deckCount + " cards";
@@ -1284,6 +1273,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -604,6 +604,8 @@ discardPileDiv.style.cursor = "not-allowed";
 
 let controlsClosedOnce = false;
 let hasDrawnThisTurn = false;
+let shuffleJustHappened = false;
+
 
 /* ============================================================
    SEAT MAPPING
@@ -1123,7 +1125,8 @@ function detectSoundAndAnimationEvents(state) {
 
   // Deck creation / shuffle
   if (lastState.deckCount === 0 && state.deckCount > 0) {
-    playSound("shuffle");
+      shuffleJustHappened = true;
+     playSound("shuffle");
   }
 
   // Bust detection
@@ -1153,7 +1156,10 @@ function detectSoundAndAnimationEvents(state) {
       }
 
       // Delay draw-related sounds slightly so shuffle plays first
+      const delay = shuffleJustHappened ? 250 : 120;
+      
       setTimeout(() => {
+        shuffleJustHappened = false; // reset after first draw
         if (newCard === "Second Chance") {
           playSound("secondChance");
         } else if (newCard === "6-") {
@@ -1163,7 +1169,8 @@ function detectSoundAndAnimationEvents(state) {
         } else {
           playSound("draw");
         }
-      }, 120);
+      }, delay);
+
     });
   }
 
@@ -1348,6 +1355,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

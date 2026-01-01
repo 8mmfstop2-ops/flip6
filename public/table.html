@@ -819,61 +819,100 @@ function animateCardToSeat(value, seatIndex) {
    RENDER DECK
 ============================================================ */
 function renderDeck(state) {
+
+  // =============================================================
+  // 1. UPDATE DECK THICKNESS (step1–step10)
+  // =============================================================
+  // Only run thickness logic if the deck has been initialized.
+  if (maxDeckSize) {
+
+    const totalCards = state.deckCount;
+    const percent = (totalCards / maxDeckSize) * 100;
+
+    let newStep;
+
+    // -----------------------------------------------------------
+    // Determine which visual thickness step to use.
+    // step1  = very thick (full deck)
+    // step10 = empty deck
+    // -----------------------------------------------------------
+    if (totalCards === 0) newStep = 10;
+    else if (percent > 90) newStep = 1;
+    else if (percent > 75) newStep = 2;
+    else if (percent > 60) newStep = 3;
+    else if (percent > 50) newStep = 4;
+    else if (percent > 40) newStep = 5;
+    else if (percent > 30) newStep = 6;
+    else if (percent > 20) newStep = 7;
+    else if (percent > 10) newStep = 8;
+    else newStep = 9;
+
+    // Remove old step class
+    deckDiv.classList.remove(`step${currentStep}`);
+
+    // Update tracker
+    currentStep = newStep;
+
+    // Add new step class (CSS transition animates the change)
+    deckDiv.classList.add(`step${currentStep}`);
+  }
+
+  // =============================================================
+  // 2. CLEAR THE DECK AREA
+  // =============================================================
   deckDiv.innerHTML = "";
 
+  // =============================================================
+  // 3. HANDLE EMPTY DECK
+  // =============================================================
   if (state.deckCount === 0) {
     deckDiv.classList.add("placeholder");
     deckCountDiv.textContent = "0 cards";
     return;
   }
 
-  if (!controlsClosedOnce && state.deckCount > 0) {
-    const controls = document.querySelector("details");
-    if (controls) controls.removeAttribute("open");
-    controlsClosedOnce = true;
-  }
-
   deckDiv.classList.remove("placeholder");
 
-   // Get the list of cards that should appear on top of the deck.
-   // If the value is missing or null, fall back to an empty array.
-   const topCards = state.topDrawCards || [];
-   
-   // We only want to visually show up to 10 stacked cards.
-   // If fewer than 10 exist, we show fewer. If more exist, we still show only 10.
-   const maxShow = Math.min(topCards.length, 10);
-   
-   // Create the stacked deck display
-   for (let i = 0; i < maxShow; i++) {
-   
-     // Create a card container <div>
-     const cardEl = document.createElement("div");
-     cardEl.classList.add("card");
-   
-     // Offset each card slightly so the stack looks layered
-     cardEl.style.top = (i * 4) + "px";
-     cardEl.style.left = (i * 4) + "px";
-   
-     if (i === 0) {
-       // ---------------------------------------------------------
-       // TOP CARD — this is the only card that should show an image
-       // ---------------------------------------------------------
-       const img = document.createElement("img");
-       img.src = "/cards/back.png";   // Card back image
-       cardEl.appendChild(img);
-   
-     } else {
-       // ---------------------------------------------------------
-       // LOWER STACKED CARDS — no image, just a blank rectangle
-       // ---------------------------------------------------------
-       cardEl.style.background = "#fff";
-       cardEl.style.border = "2px solid #000";
-     }
-   
-     // Add the card to the deck container
-     deckDiv.appendChild(cardEl);
-   }
+  // =============================================================
+  // 4. DETERMINE HOW MANY CARDS TO DISPLAY
+  // =============================================================
+  // We still show up to 10 layers visually, but the CSS step class
+  // controls how thick the deck *looks*.
+  const topCards = state.topDrawCards || [];
+  const maxShow = Math.min(topCards.length, 10);
+
+  // =============================================================
+  // 5. DRAW THE STACKED CARDS
+  // =============================================================
+  for (let i = 0; i < maxShow; i++) {
+
+    const cardEl = document.createElement("div");
+    cardEl.classList.add("card");
+
+    // Slight offset for stacked look
+    cardEl.style.top = (i * 4) + "px";
+    cardEl.style.left = (i * 4) + "px";
+
+    if (i === 0) {
+      // Top card shows the back
+      const img = document.createElement("img");
+      img.src = "/cards/back.png";
+      cardEl.appendChild(img);
+    } else {
+      // Lower cards are blank rectangles
+      cardEl.style.background = "#fff";
+      cardEl.style.border = "2px solid #000";
+    }
+
+    deckDiv.appendChild(cardEl);
+  }
+
+  // =============================================================
+  // 6. UPDATE CARD COUNT LABEL
+  // =============================================================
+  deckCountDiv.textContent = state.deckCount + " cards";
 }
+
 
 /* ============================================================
    RENDER DISCARD
@@ -899,63 +938,6 @@ function renderDiscard(state) {
   discardCountDiv.textContent = "Discarded: " + state.discardCount;
 }
 
-
-// -------------------------------------------------------------
-// UPDATE DECK THICKNESS STEP
-// -------------------------------------------------------------
-// This function updates the CSS class on the deck (<div id="deck">)
-// so the deck visually appears thicker or thinner depending on
-// how many cards remain in the draw pile.
-//
-// It uses `maxDeckSize` (the starting deck size for the round)
-// and compares it to the current `state.deckCount`.
-// -------------------------------------------------------------
-function updateDeckStep(state) {
-
-  // If maxDeckSize hasn't been set yet (e.g., before game start),
-  // exit early so we don't divide by zero or apply wrong classes.
-  if (!maxDeckSize) return;
-
-  // How many cards are currently left in the draw pile.
-  const totalCards = state.deckCount;
-
-  // Percentage of the deck remaining (0–100%).
-  const percent = (totalCards / maxDeckSize) * 100;
-
-  // This will become the new CSS step class (step1–step10).
-  let newStep;
-
-  // -----------------------------------------------------------
-  // Determine which visual thickness step to use.
-  // step1 = very thick (full deck)
-  // step10 = empty deck
-  // -----------------------------------------------------------
-
-  if (totalCards === 0) newStep = 10;        // No cards left → empty deck
-  else if (percent > 90) newStep = 1;        // 90–100% full
-  else if (percent > 75) newStep = 2;        // 75–90% full
-  else if (percent > 60) newStep = 3;        // 60–75% full
-  else if (percent > 50) newStep = 4;        // 50–60% full
-  else if (percent > 40) newStep = 5;        // 40–50% full
-  else if (percent > 30) newStep = 6;        // 30–40% full
-  else if (percent > 20) newStep = 7;        // 20–30% full
-  else if (percent > 10) newStep = 8;        // 10–20% full
-  else newStep = 9;                          // 1–10% full
-
-  // -----------------------------------------------------------
-  // Apply the new CSS class to the deck container.
-  // This changes how the stacked cards are offset in CSS.
-  // -----------------------------------------------------------
-
-  // Remove the old step class (step1–step10)
-  deckDiv.classList.remove(`step${currentStep}`);
-
-  // Update the global tracker
-  currentStep = newStep;
-
-  // Add the new step class
-  deckDiv.classList.add(`step${currentStep}`);
-}
  
    
 /* ============================================================
@@ -1160,7 +1142,6 @@ function detectSoundAndAnimationEvents(state) {
   // Deck creation / shuffle
   if (lastState.deckCount === 0 && state.deckCount > 0) {
     playSound("shuffle");
-    updateDeckStep(state);
   }
 
   // Bust detection
@@ -1176,7 +1157,7 @@ function detectSoundAndAnimationEvents(state) {
 
   // Detect new cards drawn
   if ((state.hands || []).length > (lastState.hands || []).length) {
-    updateDeckStep(state);
+
     const prevCount = lastState.hands.length;
     const newEntries = state.hands.slice(prevCount);
 
@@ -1329,6 +1310,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

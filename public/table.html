@@ -913,14 +913,12 @@ function renderDeck(state) {
     const img = document.createElement("img");
    
    if (i === 0) {
-     // Top card uses real back image
      img.src = "/cards/back.png";
+     cardEl.appendChild(img);
    } else {
-     // Lower cards → plain yellow card
      const div = document.createElement("div");
      div.className = "yellow-card";
-     slot.appendChild(div);
-     return; // stop here so we don't append img
+     cardEl.appendChild(div);
    }
 
 
@@ -1470,3 +1468,4 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+

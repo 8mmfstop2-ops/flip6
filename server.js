@@ -180,7 +180,6 @@ const pool = new Pool({
  *    - Deck creation for each room
  *    - Reshuffling discard pile when deck is empty
  ********************************************************************************************/
-
 /**
  * Standard Fisher–Yates shuffle (unbiased).
  */
@@ -216,13 +215,17 @@ function forceStreak(deck, length) {
       }
     }
 
+    // If streak is broken, try to swap in a matching card
     if (!streak) {
       const targetValue = deck[i].value;
+
+      // Find another card with same value later in deck
       const idx = deck.findIndex(
         (c, idx2) => idx2 >= i + length && c.value === targetValue
       );
 
       if (idx !== -1) {
+        // Swap to create streak
         [deck[i + length - 1], deck[idx]] = [deck[idx], deck[i + length - 1]];
         return true;
       }
@@ -233,6 +236,7 @@ function forceStreak(deck, length) {
 
 /**
  * Splits a deck into 4 zones for action insertion.
+ * This helps distribute action cards more evenly.
  */
 function makeZones(deckSize) {
   return [
@@ -245,6 +249,7 @@ function makeZones(deckSize) {
 
 /**
  * Inserts action cards into numeric deck using adaptive zones.
+ * This places a *portion* of the action cards in controlled areas.
  */
 function distributeActionsAdaptive(result, actionCards) {
   const deckSize = result.length;
@@ -258,6 +263,7 @@ function distributeActionsAdaptive(result, actionCards) {
     const [minPos, maxPos] = zones[z];
     if (minPos >= maxPos) continue; // tiny deck safety
 
+    // Insert 1–3 action cards into this zone
     const count = Math.min(
       Math.floor(Math.random() * 3) + 1,
       actionCards.length - actionIndex
@@ -271,7 +277,8 @@ function distributeActionsAdaptive(result, actionCards) {
     }
   }
 
-  return result;
+  // Return how many action cards were consumed
+  return actionIndex;
 }
 
 /**
@@ -280,27 +287,45 @@ function distributeActionsAdaptive(result, actionCards) {
  *   - Shuffle numeric
  *   - Force streaks of numerics
  *   - Shuffle actions
- *   - Insert some actions into numeric deck
+ *   - Insert some actions into numeric deck (adaptive)
+ *   - Insert remaining actions randomly (NEW FIX)
  */
 function hybridShuffle(deck, streakLengths = [2, 3]) {
   const numberCards = [];
   const actionCards = [];
 
+  // Separate numeric vs action cards
   for (const card of deck) {
     if (isAction(card.value)) actionCards.push(card);
     else numberCards.push(card);
   }
 
+  // Shuffle numeric cards
   fisherYates(numberCards);
+
+  // Apply streak forcing
   streakLengths.forEach(len => forceStreak(numberCards, len));
 
+  // Shuffle action cards
   fisherYates(actionCards);
 
-  // Limit how many actions are used for deck pacing
-  const actionsToUse = actionCards.slice(0, 14);
-
+  // Start with numeric deck
   let result = [...numberCards];
-  result = distributeActionsAdaptive(result, actionsToUse);
+
+  // Insert some action cards using adaptive zones
+  const usedCount = distributeActionsAdaptive(result, actionCards);
+
+  // ------------------------------------------------------------
+  // NEW FIX:
+  // Insert ALL remaining action cards randomly into the deck.
+  // This ensures the deck uses *every* card from card_types.
+  // ------------------------------------------------------------
+  const remaining = actionCards.slice(usedCount);
+
+  for (const card of remaining) {
+    const pos = Math.floor(Math.random() * (result.length + 1));
+    result.splice(pos, 0, card);
+  }
 
   return result;
 }
@@ -316,10 +341,12 @@ async function ensureDeck(roomId) {
   );
   if (parseInt(check.rows[0].count, 10) > 0) return;
 
+  // Load card definitions
   const types = await pool.query(
     "SELECT value, count FROM card_types ORDER BY value"
   );
 
+  // Build raw deck from DB card counts
   let deck = [];
   types.rows.forEach(row => {
     for (let i = 0; i < row.count; i++) {
@@ -327,12 +354,15 @@ async function ensureDeck(roomId) {
     }
   });
 
+  // Shuffle using hybrid algorithm
   deck = hybridShuffle(deck);
 
+  // Clear old piles
   await pool.query("DELETE FROM draw_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM discard_pile WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM player_hands WHERE room_id = $1", [roomId]);
 
+  // Insert shuffled deck
   for (let i = 0; i < deck.length; i++) {
     await pool.query(
       "INSERT INTO draw_pile (room_id, position, value) VALUES ($1, $2, $3)",
@@ -340,6 +370,8 @@ async function ensureDeck(roomId) {
     );
   }
 }
+
+
 
 /**
  * Draws the top card from the draw pile.
@@ -1205,7 +1237,7 @@ app.get("/api/room/:code/draw-pile", async (req, res) => {
       `SELECT position, value
        FROM draw_pile
        WHERE room_id = $1
-       ORDER BY position ASC`,
+       ORDER BY value ASC`,
       [roomId]
     );
 
@@ -1751,6 +1783,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

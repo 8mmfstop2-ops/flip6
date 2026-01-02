@@ -532,7 +532,6 @@ async function recomputePause(roomId) {
  *    - Skipping stayed/bust players
  *    - Detecting end-of-round
  ********************************************************************************************/
-
 /**
  * Advances turn to the next eligible player.
  *
@@ -542,25 +541,21 @@ async function recomputePause(roomId) {
 async function advanceTurn(roomId, options = {}) {
   const { forceCurrent = false } = options;
 
-  /* ============================================================
-     LOAD CURRENT ROOM STATE
-  ============================================================ */
+  // Load room
   const roomRes = await pool.query(
-    `SELECT current_player_id, round_over
-     FROM rooms
-     WHERE id = $1`,
+    `SELECT current_player_id FROM rooms WHERE id = $1`,
     [roomId]
   );
   const room = roomRes.rows[0];
 
-  // If round is already over, do nothing
-  if (room.round_over) return;
+  // If we already set the starting player for the round, do NOT rotate
+  if (forceCurrent && room.current_player_id) {
+    return;
+  }
 
-  /* ============================================================
-     LOAD ALL ACTIVE PLAYERS FOR THIS ROOM
-  ============================================================ */
+  // Load active players
   const playersRes = await pool.query(
-    `SELECT player_id, stayed, round_bust, active
+    `SELECT player_id, stayed, round_bust
      FROM room_players
      WHERE room_id = $1 AND active = TRUE
      ORDER BY order_index ASC`,
@@ -569,21 +564,12 @@ async function advanceTurn(roomId, options = {}) {
 
   const allPlayers = playersRes.rows;
 
-  /* ============================================================
-     DETERMINE ELIGIBLE PLAYERS
-     ------------------------------------------------------------
-     Eligible = NOT stayed AND NOT busted
-     These are the players who can still take a turn.
-  ============================================================ */
+  // Eligible players: not stayed and not bust
   let eligible = allPlayers.filter(p => !p.stayed && !p.round_bust);
+  let players = eligible.map(p => p.player_id);
 
-  /* ============================================================
-     CASE 1: NO ELIGIBLE PLAYERS LEFT
-     ------------------------------------------------------------
-     Everyone either stayed or busted.
-     → Round is over.
-  ============================================================ */
-  if (eligible.length === 0) {
+  // If no eligible players left → round over
+  if (players.length === 0) {
     await pool.query(
       `UPDATE rooms
        SET round_over = TRUE,
@@ -594,52 +580,28 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  /* ============================================================
-     CASE 2: FIRST TURN OF THE ROUND
-     ------------------------------------------------------------
-     If no current player is set, start with the first eligible.
-  ============================================================ */
+  // If no current player, start with first eligible
   if (!room.current_player_id) {
     await pool.query(
-      `UPDATE rooms
-       SET current_player_id = $1
-       WHERE id = $2`,
-      [eligible[0].player_id, roomId]
+      `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
+      [players[0], roomId]
     );
     return;
   }
 
-  /* ============================================================
-     FIND CURRENT PLAYER IN ELIGIBLE LIST
-  ============================================================ */
-  const currentIdx = eligible.findIndex(
-    p => p.player_id === room.current_player_id
-  );
+  // Find current player index
+  const currentIdx = players.indexOf(room.current_player_id);
 
-  /* ============================================================
-     CASE 3: CURRENT PLAYER IS NO LONGER ELIGIBLE
-     ------------------------------------------------------------
-     (They stayed or busted)
-     → Move to first eligible player.
-  ============================================================ */
+  // If current player is no longer eligible → jump to first eligible
   if (currentIdx === -1) {
     await pool.query(
-      `UPDATE rooms
-       SET current_player_id = $1
-       WHERE id = $2`,
-      [eligible[0].player_id, roomId]
+      `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
+      [players[0], roomId]
     );
     return;
   }
 
-  /* ============================================================
-     CASE 4: CHECK IF EVERYONE ELSE HAS STAYED
-     ------------------------------------------------------------
-     If all other players stayed or busted, we must:
-     - Reset stayed flags for OTHER players
-     - Keep current player's stayed flag (if any)
-     - Start a new turn cycle
-  ============================================================ */
+  // Check if everyone else stayed or busted
   const everyoneElseStayed =
     allPlayers.every(p =>
       p.player_id === room.current_player_id || p.stayed || p.round_bust
@@ -665,24 +627,34 @@ async function advanceTurn(roomId, options = {}) {
     );
 
     eligible = refreshed.rows.filter(p => !p.stayed && !p.round_bust);
+    players = eligible.map(p => p.player_id);
   }
 
-  /* ============================================================
-     CASE 5: NORMAL TURN ROTATION
-     ------------------------------------------------------------
-     Move to the next eligible player.
-     If only one eligible player exists, this loops back to them.
-  ============================================================ */
-  const newIdx = (currentIdx + 1) % eligible.length;
-  const nextPlayerId = eligible[newIdx].player_id;
+  // Normal rotation
+  const nextIndex = (currentIdx + 1) % players.length;
+  const nextPlayerId = players[nextIndex];
 
+  /* ============================================================
+     ⭐ DEALER CHIP FIX ⭐
+     ------------------------------------------------------------
+     The dealer chip was one turn behind because the UI was
+     rendering based on the OLD current_player_id.
+
+     The fix is simple:
+     - ALWAYS update current_player_id BEFORE sending stateUpdate.
+     - The client must render using state.currentPlayerId,
+       NOT lastState.currentPlayerId.
+
+     This update ensures the dealer chip ALWAYS points to the
+     correct player immediately.
+  ============================================================ */
   await pool.query(
-    `UPDATE rooms
-     SET current_player_id = $1
-     WHERE id = $2`,
+    `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
     [nextPlayerId, roomId]
   );
 }
+
+
 
 
 /********************************************************************************************
@@ -1934,6 +1906,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

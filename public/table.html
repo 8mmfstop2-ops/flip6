@@ -760,25 +760,41 @@ function playSound(name) {
   s.play().catch(() => {});
 }
 
-volumeSlider.addEventListener("input", () => {
+function updateVolume() {
   const val = parseInt(volumeSlider.value, 10);
-  volumeLevel = Math.max(0, Math.min(100, val)) / 100;
-   // Logarithmic curve 
-   volumeLevel = Math.pow(val / 100, 2);
-   
-   volumePercent.textContent = val + "%";
-   
-   if (val >= 65) {
-     volumePercent.style.color = "red";        
-   } else if (val >= 40 && val <= 66) {
-     volumePercent.style.color = "yellow";      
-   } else {
-     volumePercent.style.color = "#93FF7D";      // default green
-   }
 
+  // Clamp 0–100
+  const clamped = Math.max(0, Math.min(100, val));
+
+  // Logarithmic curve
+  volumeLevel = Math.pow(clamped / 100, 2);
+
+  // Update UI
+  volumePercent.textContent = clamped + "%";
+
+  if (clamped >= 65) {
+    volumePercent.style.color = "red";
+  } else if (clamped >= 40) {
+    volumePercent.style.color = "yellow";
+  } else {
+    volumePercent.style.color = "#93FF7D";
+  }
+
+  // Apply volume to all base sounds
+  Object.values(sounds).forEach(s => {
+    s.volume = volumeLevel;
+  });
+}
+
+// Run once on load 
+updateVolume();
    
-   playSound("draw");
+// Update when slider moves
+volumeSlider.addEventListener("input", () => {
+  updateVolume();
+  playSound("draw");
 });
+
 
 muteToggleBtn.addEventListener("click", () => {
   isMuted = !isMuted;
@@ -1452,19 +1468,14 @@ removeBtn.addEventListener("click", () => {
 /* ============================================================
    INITIAL STATUS
 ============================================================ */
-// 3. Apply default volume immediately (THIS is where it goes)
-updateVolume();
 
-// 4. Update when slider moves (THIS goes right after)
-volumeSlider.addEventListener("input", updateVolume);
-
-   
 statusDiv.textContent = "Connecting to room…";
 
 </script>
 
 </body>
 </html>
+
 
 
 

@@ -893,6 +893,65 @@ function animateCardToSeat(value, seatIndex) {
 /* ============================================================
    RENDER DECK
 ============================================================ */
+function renderDeck(state) {
+  deckDiv.innerHTML = "";
+
+  // Empty deck
+  if (state.deckCount === 0) {
+    deckDiv.classList.add("placeholder");
+    deckCountDiv.textContent = "0 cards";
+
+    deckDiv.classList.remove(`step${currentStep}`);
+    deckDiv.classList.add("step10");
+    currentStep = 10;
+    return;
+  }
+
+  deckDiv.classList.remove("placeholder");
+
+  /* ============================================================
+     STACKED CARDS (depth illusion)
+     ------------------------------------------------------------
+     We render up to 5 stacked cards.
+     The LAST one becomes the visible top card (back.png).
+  ============================================================ */
+  const count = Math.min(state.deckCount, 5);
+
+  for (let i = 0; i < count; i++) {
+    const card = document.createElement("div");
+    card.classList.add("card");
+
+    // Make the LAST card the top card
+    if (i === count - 1) {
+      card.classList.add("top-card");
+    }
+
+    deckDiv.appendChild(card);
+  }
+
+  /* ============================================================
+     THICKNESS LOGIC (step1 → step10)
+  ============================================================ */
+  const totalCards = state.deckCount;
+  const percent = (totalCards / maxDeckSize) * 100;
+
+  let newStep;
+  if (percent > 90) newStep = 1;
+  else if (percent > 75) newStep = 2;
+  else if (percent > 60) newStep = 3;
+  else if (percent > 50) newStep = 4;
+  else if (percent > 40) newStep = 5;
+  else if (percent > 30) newStep = 6;
+  else if (percent > 20) newStep = 7;
+  else if (percent > 10) newStep = 8;
+  else newStep = 9;
+
+  deckDiv.classList.remove(`step${currentStep}`);
+  deckDiv.classList.add(`step${newStep}`);
+  currentStep = newStep;
+
+  deckCountDiv.textContent = totalCards + " cards";
+}
 
 
 
@@ -1399,6 +1458,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -638,8 +638,11 @@ async function computeScore(roomId, playerId) {
   let mult = 1;
 
   for (const row of res.rows) {
-    const v = row.value;
+    // FIX: Normalize hyphens so "6‑" and "6–" score correctly
+    const v = row.value.replace(/[–—‑]/g, "-");
+  
     const num = parseInt(v, 10);
+
 
     if (!isNaN(num)) {
       score += num;
@@ -1533,53 +1536,79 @@ socket.on("stay", async ({ roomCode, playerId }) => {
 });
 
 
-  /**
-   * PASS
-   *   - Current player passes without staying
-   *   - Clears pending action
-   *   - Advances turn
-   */
-  socket.on("pass", async ({ roomCode, playerId }) => {
-    try {
-      const code = String(roomCode || "").trim().toUpperCase();
+/**
+ * PASS
+ *   - Current player passes without staying
+ *   - If they are the last eligible player, the turn returns to them
+ *   - Otherwise, advance to next player
+ */
+socket.on("pass", async ({ roomCode, playerId }) => {
+  try {
+    const code = String(roomCode || "").trim().toUpperCase();
 
-      const roomRes = await pool.query(
-        "SELECT * FROM rooms WHERE code = $1",
-        [code]
-      );
-      if (!roomRes.rows.length) return;
-      const room = roomRes.rows[0];
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
+    if (!roomRes.rows.length) return;
+    const room = roomRes.rows[0];
 
-      const state = await getState(room.id);
-      if (!state) return;
+    const state = await getState(room.id);
+    if (!state) return;
 
-      const isMyTurn =
-        state.currentPlayerId === playerId &&
-        !state.roundOver &&
-        !state.paused &&
-        !state.pendingActionType;
+    const isMyTurn =
+      state.currentPlayerId === playerId &&
+      !state.roundOver &&
+      !state.paused &&
+      !state.pendingActionType;
 
-      if (!isMyTurn) return;
+    if (!isMyTurn) return;
 
-      // Clear any pending action
+    // ------------------------------------------------------------
+    // FIX: If this player is the LAST eligible player,
+    //      the turn must return to them (PASS should not end round)
+    // ------------------------------------------------------------
+    const others = state.players.filter(p => p.id !== playerId);
+    const everyoneElseStayed = others.every(
+      p => p.stayed === true || p.round_bust === true
+    );
+
+    if (everyoneElseStayed) {
+      // Force turn back to this player
       await pool.query(
-        `UPDATE rooms
-         SET pending_action_type = NULL,
-             pending_action_actor_id = NULL,
-             pending_action_value = NULL
-         WHERE id = $1`,
-        [room.id]
+        `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
+        [playerId, room.id]
       );
-
-      // Move to next player
-      await advanceTurn(room.id);
 
       const newState = await getState(room.id);
       io.to(code).emit("stateUpdate", newState);
-    } catch (err) {
-      console.error("pass error:", err);
+      return; // IMPORTANT: do NOT advanceTurn()
     }
-  });
+
+    // ------------------------------------------------------------
+    // Normal PASS behavior
+    // ------------------------------------------------------------
+    await pool.query(
+      `UPDATE rooms
+       SET pending_action_type = NULL,
+           pending_action_actor_id = NULL,
+           pending_action_value = NULL
+       WHERE id = $1`,
+      [room.id]
+    );
+
+    await advanceTurn(room.id);
+
+    const newState = await getState(room.id);
+    io.to(code).emit("stateUpdate", newState);
+
+  } catch (err) {
+    console.error("pass error:", err);
+  }
+});
+
+
+  
 
   /**
    * END ROUND
@@ -1835,6 +1864,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

@@ -1077,11 +1077,10 @@ app.post("/api/player/join", async (req, res) => {
     const cleanName = String(name || "").trim();
 
     if (!cleanName || !code) {
-      return res
-        .status(400)
-        .json({ error: "Missing name or room code." });
+      return res.status(400).json({ error: "Missing name or room code." });
     }
 
+    // Load or create room
     const roomRes = await pool.query(
       "SELECT * FROM rooms WHERE code = $1",
       [code]
@@ -1100,40 +1099,51 @@ app.post("/api/player/join", async (req, res) => {
       room = roomRes.rows[0];
     }
 
-    // Look for any active player with this name in the room.
-    // 'connected' flag is used below to decide between error vs reconnect.
-  const dupRes = await pool.query(
-    `SELECT player_id, connected
-     FROM room_players
-     WHERE room_id = $1
-       AND LOWER(name) = LOWER($2)
-       AND active = TRUE
-       AND connected = TRUE`,
-    [room.id, cleanName]
-  );
+    // ------------------------------------------------------------
+    // ** Find ANY active player with this name (connected OR not)
+    // That prevented disconnected players from being found,
+    // so they were treated as NEW players → blocked by room.locked.
+    // ------------------------------------------------------------
+    const dupRes = await pool.query(
+      `SELECT player_id, connected
+       FROM room_players
+       WHERE room_id = $1
+         AND LOWER(name) = LOWER($2)
+         AND active = TRUE`,
+      [room.id, cleanName]
+    );
 
     let playerId;
 
     if (dupRes.rows.length > 0) {
       const existing = dupRes.rows[0];
 
-      // If they are currently connected, block duplicate login.
+      // ------------------------------------------------------------
+      // If the player is already connected on another device → block.
+      // ------------------------------------------------------------
       if (existing.connected) {
         return res.status(400).json({
           error: "A player by that name is already in the room."
         });
       }
 
-      // If they are disconnected, allow rejoin with same player_id.
+      // ------------------------------------------------------------
+      // ** Disconnected player rejoining — ALWAYS allowed,
+      // even if room.locked = TRUE.
+      // ------------------------------------------------------------
       playerId = existing.player_id;
+
     } else {
-      // New player, only allowed if room is not locked.
+      // ------------------------------------------------------------
+      // NEW PLAYER — only allowed if room is NOT locked.
+      // ------------------------------------------------------------
       if (room.locked) {
         return res.status(400).json({
           error: "This room is locked. Only existing players can rejoin."
         });
       }
 
+      // Create new player
       const insertRes = await pool.query(
         `
         INSERT INTO room_players (room_id, player_id, name, order_index, active, connected)
@@ -1158,9 +1168,11 @@ app.post("/api/player/join", async (req, res) => {
       playerId = insertRes.rows[0].player_id;
     }
 
+    // Success → redirect to table
     return res.json({
       redirect: `/room/${code}?playerId=${playerId}`
     });
+
   } catch (err) {
     console.error("JOIN ERROR:", err);
     res.status(500).json({
@@ -1739,6 +1751,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

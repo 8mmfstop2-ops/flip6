@@ -180,25 +180,9 @@
       font-weight: bold;
     }
    
-   .deck .top-card {
-     position: absolute;
-     top: 0;
-     left: 0;
-     transition: all 0.3s ease;
-     width: 70px;
-     height: 100px;
-   
-     /* Real card back image */
-     background: url("/cards/back.png") center/cover no-repeat;
-   
-     border: 2px solid #000;
-     border-radius: 6px;
-   
-     /* Always above the stacked cards */
-     z-index: 10;
-   
-     /* So clicks still go to the deck */
-     pointer-events: none;
+   /* The top-most stacked card uses the back image */
+   .deck .card.top-card {
+     background: url("/images/back.png") center/cover no-repeat;
    }
 
    
@@ -530,8 +514,8 @@
       <button id="mute-toggle">Mute</button>
       <label>
         Volume:
-        <input id="volume-slider" type="range" min="0" max="100" value="40">
-         <span id="volume-percent">40%</span>
+        <input id="volume-slider" type="range" min="0" max="100" value="30">
+         <span id="volume-percent">30%</span>
       </label>
       <button id="test-sounds-btn">Test Sounds</button>
     </div>
@@ -784,10 +768,10 @@ volumeSlider.addEventListener("input", () => {
    
    volumePercent.textContent = val + "%";
    
-   if (val >= 79) {
+   if (val >= 65) {
      volumePercent.style.color = "red";        
-   } else if (val >= 55 && val <= 65) {
-     volumePercent.style.color = "FFC340";      
+   } else if (val >= 40 && val <= 66) {
+     volumePercent.style.color = "yellow";      
    } else {
      volumePercent.style.color = "#93FF7D";      // default green
    }
@@ -909,72 +893,6 @@ function animateCardToSeat(value, seatIndex) {
 /* ============================================================
    RENDER DECK
 ============================================================ */
-function renderDeck(state) {
-  deckDiv.innerHTML = "";
-
-  // Empty deck
-  if (state.deckCount === 0) {
-    deckDiv.classList.add("placeholder");
-    deckCountDiv.textContent = "0 cards";
-
-    // Show the thinnest deck state
-    deckDiv.classList.remove(`step${currentStep}`);
-    deckDiv.classList.add("step10");
-    currentStep = 10;
-
-    return;
-  }
-
-  deckDiv.classList.remove("placeholder");
-
-  /* ============================================================
-     STACKED CARD BACKS (depth illusion)
-     ------------------------------------------------------------
-     We render up to 5 blank card divs to create the illusion
-     of a physical stack. These sit UNDER the top card.
-  ============================================================ */
-  const count = Math.min(state.deckCount, 5);
-  for (let i = 0; i < count; i++) {
-    const card = document.createElement("div");
-    card.classList.add("card");
-    deckDiv.appendChild(card);
-  }
-
-  /* ============================================================
-     TOP CARD (real back.png)
-     ------------------------------------------------------------
-     This sits ABOVE the stacked cards and is the visible face.
-     Uses .deck .top-card styling.
-  ============================================================ */
-  const topCard = document.createElement("div");
-  topCard.classList.add("top-card");
-  deckDiv.appendChild(topCard);
-
-  /* ============================================================
-     THICKNESS LOGIC (step1 → step10)
-     ------------------------------------------------------------
-     Smoothly animates deck thickness based on % of max size.
-  ============================================================ */
-  const totalCards = state.deckCount;
-  const percent = (totalCards / maxDeckSize) * 100;
-
-  let newStep;
-  if (percent > 90) newStep = 1;
-  else if (percent > 75) newStep = 2;
-  else if (percent > 60) newStep = 3;
-  else if (percent > 50) newStep = 4;
-  else if (percent > 40) newStep = 5;
-  else if (percent > 30) newStep = 6;
-  else if (percent > 20) newStep = 7;
-  else if (percent > 10) newStep = 8;
-  else newStep = 9;
-
-  deckDiv.classList.remove(`step${currentStep}`);
-  deckDiv.classList.add(`step${newStep}`);
-  currentStep = newStep;
-
-  deckCountDiv.textContent = totalCards + " cards";
-}
 
 
 
@@ -1481,6 +1399,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

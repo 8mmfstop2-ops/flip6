@@ -315,7 +315,6 @@
      border-radius: 8px;
      cursor: pointer;
      width: 100%;
-     margin-bottom: 40px;
    }
    
    .pass-button:hover {
@@ -339,6 +338,11 @@
      background-color: #1ff233;
    }
 
+   #pass-button {
+      margin-bottom: 80px;   /* or 120px, etc. for a huge gap */
+   }
+
+   
    #stay-button,
    #pass-button {
      display: none;
@@ -1209,38 +1213,75 @@ function detectSoundAndAnimationEvents(state) {
 ============================================================ */
 socket.on("stateUpdate", (state) => {
 
-  // FIRST UPDATE: render immediately and skip logic
+  /* ============================================================
+     FIRST UPDATE — MUST INITIALIZE STATE TRACKERS
+     ------------------------------------------------------------
+     On the very first stateUpdate:
+     - We have no previous state to compare against
+     - So draw detection, sound detection, and turn logic
+       MUST NOT run yet.
+     - But we MUST initialize:
+         • currentState
+         • lastState (for sound + animation)
+         • hasDrawnThisTurn (so first click works)
+         • maxDeckSize (so deck thickness works)
+  ============================================================ */
   if (!currentState) {
     currentState = state;
 
+    // Initialize comparison state so shuffle/draw sounds work
+    lastState = state;
+
+    // Player has not drawn yet — required so first click works
+    hasDrawnThisTurn = false;
+
+    // Initialize deck thickness baseline
+    maxDeckSize = state.deckCount;
+
+    // Render everything immediately
     renderDeck(state);
     renderDiscard(state);
     renderPlayers(state);
     updateButtons(state);
     updatePauseOverlay(state);
 
-    return;
+    return; // Skip all other logic on first update
   }
 
-  // Keep old deck count BEFORE overwriting currentState
+  /* ============================================================
+     SAVE OLD VALUES BEFORE UPDATING
+     ------------------------------------------------------------
+     These are needed for:
+     - detecting real draws
+     - detecting shuffle
+     - detecting new cards
+  ============================================================ */
   const oldDeckCount = currentState.deckCount;
   const newDeckCount = state.deckCount;
 
+  // Update the main state reference
   currentState = state;
 
-  // Capture max deck size once
+  /* ============================================================
+     CAPTURE MAX DECK SIZE (only once)
+     ------------------------------------------------------------
+     Needed for deck thickness animation.
+  ============================================================ */
   if (maxDeckSize === null && state.deckCount > 0) {
     maxDeckSize = state.deckCount;
   }
 
   /* ============================================================
      DETECT A REAL DRAW (server-confirmed)
+     ------------------------------------------------------------
+     If the deck count decreased AND it's our turn,
+     then we drew a card.
   ============================================================ */
   if (newDeckCount < oldDeckCount) {
     if (state.currentPlayerId === playerId) {
       hasDrawnThisTurn = true;
 
-      const deckDiv = document.getElementById("deck");
+      // Disable deck after drawing
       deckDiv.style.pointerEvents = "none";
       deckDiv.style.opacity = "0.5";
     }
@@ -1248,17 +1289,23 @@ socket.on("stateUpdate", (state) => {
 
   /* ============================================================
      RESET DRAW FLAG WHEN TURN CHANGES
+     ------------------------------------------------------------
+     When it's no longer our turn, reset draw state and
+     re-enable the deck for the next time it's our turn.
   ============================================================ */
   if (state.currentPlayerId !== playerId) {
     hasDrawnThisTurn = false;
 
-    const deckDiv = document.getElementById("deck");
     deckDiv.style.pointerEvents = "auto";
     deckDiv.style.opacity = "1";
   }
 
   /* ============================================================
      SHOW / HIDE STAY + PASS BUTTONS
+     ------------------------------------------------------------
+     Buttons appear ONLY when:
+     - It's our turn
+     - AND we have drawn a card
   ============================================================ */
   const stayBtn = document.getElementById("stay-button");
   const passBtn = document.getElementById("pass-button");
@@ -1272,7 +1319,13 @@ socket.on("stateUpdate", (state) => {
   }
 
   /* ============================================================
-     NORMAL RENDERING
+     NORMAL RENDERING + SOUND/ANIMATION DETECTION
+     ------------------------------------------------------------
+     Now that state is updated and logic is handled,
+     we can safely:
+     - detect sounds
+     - animate new cards
+     - update UI
   ============================================================ */
   detectSoundAndAnimationEvents(state);
   renderDeck(state);
@@ -1388,6 +1441,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

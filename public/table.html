@@ -1130,6 +1130,12 @@ function updateButtons(state) {
 
   /* ============================================================
      DETERMINE IF IT'S MY TURN
+     ------------------------------------------------------------
+     A player can only act when:
+     - They are the current player
+     - The round is not over
+     - The game is not paused
+     - No pending action (like targeting another player)
   ============================================================ */
   const isMyTurn =
     state.currentPlayerId === playerId &&
@@ -1138,42 +1144,63 @@ function updateButtons(state) {
     !state.pendingActionType;
 
   /* ============================================================
+     COUNT ACTIVE PLAYERS
+     ------------------------------------------------------------
+     This is CRITICAL for fixing:
+     - Single-player mode
+     - Turn cycling back to the same player
+     - All players staying
+     If only one player is active, they must ALWAYS be allowed
+     to draw again (new turn cycle).
+  ============================================================ */
+  const activePlayers = state.players.filter(p => !p.disconnected);
+  const onlyOnePlayer = activePlayers.length === 1;
+
+  /* ============================================================
      SPECIAL CASE: GAME NOT STARTED (deckCount === 0)
      ------------------------------------------------------------
-     The deck MUST be clickable so Player 1 can start the game.
-     We remove the disabled class for Player 1.
+     Player 1 must be able to click the deck to start the game.
+     All other players must NOT be able to click.
   ============================================================ */
-   if (state.deckCount === 0) {
-     if (playerId === 1) {
-       // Player 1 can click to start
-       deckDiv.classList.remove("disabled");
-     } else {
-       // All other players cannot click
-       deckDiv.classList.add("disabled");
-     }
-   } else {
+  if (state.deckCount === 0) {
+    if (playerId === 1) {
+      deckDiv.classList.remove("disabled");
+    } else {
+      deckDiv.classList.add("disabled");
+    }
+  } else {
 
     /* ============================================================
        NORMAL CASE: DECK EXISTS
        ------------------------------------------------------------
-       Deck is clickable ONLY when:
-       - It's my turn
-       - AND I have NOT drawn yet
-       - AND there are cards in the deck
+       FIXED LOGIC:
+       A player can draw if:
+       - It's their turn
+       - AND they have NOT drawn yet
+       - OR they are the ONLY player (turn cycles back to them)
+       - AND the deck has cards
+       This fixes:
+       - Being stuck after all players stay
+       - Being stuck when turn cycles back
+       - Being stuck in single-player mode
     ============================================================ */
-    const canDrawNow = isMyTurn && !hasDrawnThisTurn && state.deckCount > 0;
+    const canDrawNow =
+      isMyTurn &&
+      ( !hasDrawnThisTurn || onlyOnePlayer ) &&
+      state.deckCount > 0;
 
     deckDiv.classList.toggle("disabled", !canDrawNow);
   }
 
-   /* ============================================================
+  /* ============================================================
      STAY + PASS BUTTONS
      ------------------------------------------------------------
-     Buttons appear ONLY when:
-     - It's my turn
-     - AND I have drawn a card
+     LOGIC:
+     Stay/Pass should appear ONLY after a REAL draw.
+     BUT NOT in single-player mode — because the player should
+     immediately be allowed to draw again (new turn cycle).
   ============================================================ */
-  if (isMyTurn && hasDrawnThisTurn) {
+  if (isMyTurn && hasDrawnThisTurn && !onlyOnePlayer) {
     stayButton.style.display = "inline-block";
     passButton.style.display = "inline-block";
   } else {
@@ -1183,11 +1210,19 @@ function updateButtons(state) {
 
   /* ============================================================
      END ROUND BUTTON
+     ------------------------------------------------------------
+     Only enabled when the round is over and the game is not paused.
   ============================================================ */
   endTurnsButton.disabled = !state.roundOver || state.paused;
 
   /* ============================================================
      STATUS TEXT
+     ------------------------------------------------------------
+     Shows the correct status depending on:
+     - Pause state
+     - Round over
+     - Pending actions
+     - Whose turn it is
   ============================================================ */
   if (state.paused) {
     statusDiv.textContent = "Game paused — waiting for disconnected players.";
@@ -1291,33 +1326,26 @@ function detectSoundAndAnimationEvents(state) {
 /* ============================================================
    SOCKET STATE UPDATE
 ============================================================ */
-
 socket.on("stateUpdate", (state) => {
 
-   document.getElementById("roundNumberDisplay").textContent =
+  // Update round number display
+  document.getElementById("roundNumberDisplay").textContent =
     "Round " + state.roundNumber;
 
-   
   /* ============================================================
      FIRST UPDATE — INITIALIZE EVERYTHING
      ------------------------------------------------------------
-     This MUST run only once. It ensures:
-     - Player 1 appears immediately
-     - First click works
-     - Shuffle sound works
-     - First draw sound works
-     - Deck thickness initializes
+     We DO NOT return anymore. We initialize UI once,
+     but still allow turn logic to run on this same update.
   ============================================================ */
   if (!currentState) {
     currentState = state;
-
-    // Required so shuffle/draw detection works on next update
     lastState = state;
 
-    // Required so first click is allowed
+    // Allow first click
     hasDrawnThisTurn = false;
 
-    // Required so deck thickness animation works
+    // Deck thickness animation setup
     maxDeckSize = state.deckCount;
 
     // Render UI immediately
@@ -1327,16 +1355,12 @@ socket.on("stateUpdate", (state) => {
     updateButtons(state);
     updatePauseOverlay(state);
 
-   // return; 
+    // IMPORTANT: no return here — we want turn logic to run too
   }
 
   /* ============================================================
      SAVE OLD VALUES BEFORE UPDATING
-     ------------------------------------------------------------
-     Needed for detecting:
-     - real draws
-     - shuffle
-     - new cards
+     Used to detect real draws, shuffles, etc.
   ============================================================ */
   const oldDeckCount = currentState.deckCount;
   const newDeckCount = state.deckCount;
@@ -1353,7 +1377,6 @@ socket.on("stateUpdate", (state) => {
 
   /* ============================================================
      DETECT A REAL DRAW (server-confirmed)
-     ------------------------------------------------------------
      If deckCount decreased AND it's our turn,
      then we drew a card.
   ============================================================ */
@@ -1364,9 +1387,24 @@ socket.on("stateUpdate", (state) => {
   }
 
   /* ============================================================
-     RESET DRAW FLAG WHEN TURN CHANGES
+     FIXED LOGIC:
+     RESET DRAW FLAG WHEN TURN CHANGES OR WHEN ONLY ONE PLAYER
+     ------------------------------------------------------------
+     Why this fix is needed:
+     - If only one player remains, the turn cycles back to them.
+     - If all players stayed, the turn cycles back to the same player.
+     - If the server sends two identical updates, the client must reset.
+     Without this fix, the client thinks "you already drew" forever.
   ============================================================ */
-  if (state.currentPlayerId !== playerId) {
+
+  // Count active (non-disconnected) players
+  const activePlayers = state.players.filter(p => !p.disconnected);
+  const onlyOnePlayer = activePlayers.length === 1;
+
+  // Reset draw flag if:
+  // - the turn changed to a different player
+  // - OR you are the only player (turn cycles back to you)
+  if (state.currentPlayerId !== playerId || onlyOnePlayer) {
     hasDrawnThisTurn = false;
   }
 
@@ -1381,7 +1419,6 @@ socket.on("stateUpdate", (state) => {
   updatePauseOverlay(state);
 });
 
-   
 
 /* ============================================================
    ON CONNECT → LOAD META + JOIN ROOM
@@ -1489,6 +1526,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

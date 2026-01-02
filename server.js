@@ -638,22 +638,20 @@ async function computeScore(roomId, playerId) {
   let mult = 1;
 
   for (const row of res.rows) {
-    // FIX: Normalize hyphens so "6‑" and "6–" score correctly
-    const v = row.value.replace(/[–—‑]/g, "-");
+    // Normalize hyphens just in case
+    const v = row.value.trim().replace(/[–—‑]/g, "-");
   
-    const num = parseInt(v, 10);
-
-
-    if (!isNaN(num)) {
-      score += num;
+    // Only treat pure digits as numeric cards
+    if (/^(?:[0-9]|1[0-2])$/.test(v)) {
+      score += parseInt(v, 10);
       continue;
     }
-
+  
     if (v === "2x") mult *= 2;
     if (v === "4+") score += 4;
     if (v === "5+") score += 5;
-    if (v === "6-") score -= 6;
-    // Second Chance & instants are not scored
+    if (v === "6-") score -= 6;  
+    //  other action cards are not scored
   }
 
   return score * mult;
@@ -1864,6 +1862,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

@@ -1083,31 +1083,52 @@ function applyTargetSelection(state) {
    BUTTON ENABLE/DISABLE LOGIC
 ============================================================ */
 function updateButtons(state) {
+
+  /* ============================================================
+     DETERMINE IF IT'S MY TURN
+  ============================================================ */
   const isMyTurn =
     state.currentPlayerId === playerId &&
     !state.roundOver &&
     !state.paused &&
     !state.pendingActionType;
 
-  // NEW: game not started yet (no deck)
-  const gameNotStarted = state.deckCount === 0;
+  /* ============================================================
+     DECK ENABLE/DISABLE LOGIC (THE IMPORTANT PART)
+     ------------------------------------------------------------
+     Deck is enabled ONLY when:
+     - It's my turn
+     - AND I have NOT drawn yet
+     - AND the deck is not empty
+  ============================================================ */
+  const canDrawNow = isMyTurn && !hasDrawnThisTurn && state.deckCount > 0;
 
-  // Deck clickable only on your turn
-  deckDiv.classList.toggle("disabled", !isMyTurn);
+  // Apply CSS class to disable deck for everyone else
+  deckDiv.classList.toggle("disabled", !canDrawNow);
 
-  // Stay + Pass buttons visible only on your turn AND game started
-  if (isMyTurn && !gameNotStarted) {
-    stayButton.style.display = "block";
-    passButton.style.display = "block";
+  /* ============================================================
+     STAY + PASS BUTTONS
+     ------------------------------------------------------------
+     Buttons appear ONLY when:
+     - It's my turn
+     - AND I have drawn a card
+  ============================================================ */
+  if (isMyTurn && hasDrawnThisTurn) {
+    stayButton.style.display = "inline-block";
+    passButton.style.display = "inline-block";
   } else {
     stayButton.style.display = "none";
     passButton.style.display = "none";
   }
 
-  // End Round button
+  /* ============================================================
+     END ROUND BUTTON
+  ============================================================ */
   endTurnsButton.disabled = !state.roundOver || state.paused;
 
-  // Status text
+  /* ============================================================
+     STATUS TEXT
+  ============================================================ */
   if (state.paused) {
     statusDiv.textContent = "Game paused — waiting for disconnected players.";
     return;
@@ -1128,7 +1149,7 @@ function updateButtons(state) {
     return;
   }
 
-  if (isMyTurn && !gameNotStarted) {
+  if (isMyTurn) {
     const me = state.players.find(p => p.id === playerId);
     statusDiv.textContent = `Your turn, ${me ? me.name : "Player"}.`;
   } else {
@@ -1136,7 +1157,6 @@ function updateButtons(state) {
     statusDiv.textContent = current ? `Current player: ${current.name}` : "Waiting for players…";
   }
 }
-
 
    
 
@@ -1211,34 +1231,32 @@ function detectSoundAndAnimationEvents(state) {
 /* ============================================================
    SOCKET STATE UPDATE
 ============================================================ */
+
 socket.on("stateUpdate", (state) => {
 
   /* ============================================================
-     FIRST UPDATE — MUST INITIALIZE STATE TRACKERS
+     FIRST UPDATE — INITIALIZE EVERYTHING
      ------------------------------------------------------------
-     On the very first stateUpdate:
-     - We have no previous state to compare against
-     - So draw detection, sound detection, and turn logic
-       MUST NOT run yet.
-     - But we MUST initialize:
-         • currentState
-         • lastState (for sound + animation)
-         • hasDrawnThisTurn (so first click works)
-         • maxDeckSize (so deck thickness works)
+     This MUST run only once. It ensures:
+     - Player 1 appears immediately
+     - First click works
+     - Shuffle sound works
+     - First draw sound works
+     - Deck thickness initializes
   ============================================================ */
   if (!currentState) {
     currentState = state;
 
-    // Initialize comparison state so shuffle/draw sounds work
+    // Required so shuffle/draw detection works on next update
     lastState = state;
 
-    // Player has not drawn yet — required so first click works
+    // Required so first click is allowed
     hasDrawnThisTurn = false;
 
-    // Initialize deck thickness baseline
+    // Required so deck thickness animation works
     maxDeckSize = state.deckCount;
 
-    // Render everything immediately
+    // Render UI immediately
     renderDeck(state);
     renderDiscard(state);
     renderPlayers(state);
@@ -1251,21 +1269,19 @@ socket.on("stateUpdate", (state) => {
   /* ============================================================
      SAVE OLD VALUES BEFORE UPDATING
      ------------------------------------------------------------
-     These are needed for:
-     - detecting real draws
-     - detecting shuffle
-     - detecting new cards
+     Needed for detecting:
+     - real draws
+     - shuffle
+     - new cards
   ============================================================ */
   const oldDeckCount = currentState.deckCount;
   const newDeckCount = state.deckCount;
 
-  // Update the main state reference
+  // Update main state reference
   currentState = state;
 
   /* ============================================================
      CAPTURE MAX DECK SIZE (only once)
-     ------------------------------------------------------------
-     Needed for deck thickness animation.
   ============================================================ */
   if (maxDeckSize === null && state.deckCount > 0) {
     maxDeckSize = state.deckCount;
@@ -1274,67 +1290,34 @@ socket.on("stateUpdate", (state) => {
   /* ============================================================
      DETECT A REAL DRAW (server-confirmed)
      ------------------------------------------------------------
-     If the deck count decreased AND it's our turn,
+     If deckCount decreased AND it's our turn,
      then we drew a card.
   ============================================================ */
   if (newDeckCount < oldDeckCount) {
     if (state.currentPlayerId === playerId) {
       hasDrawnThisTurn = true;
-
-      // Disable deck after drawing
-      deckDiv.style.pointerEvents = "none";
-      deckDiv.style.opacity = "0.5";
     }
   }
 
   /* ============================================================
      RESET DRAW FLAG WHEN TURN CHANGES
-     ------------------------------------------------------------
-     When it's no longer our turn, reset draw state and
-     re-enable the deck for the next time it's our turn.
   ============================================================ */
   if (state.currentPlayerId !== playerId) {
     hasDrawnThisTurn = false;
-
-    deckDiv.style.pointerEvents = "auto";
-    deckDiv.style.opacity = "1";
-  }
-
-  /* ============================================================
-     SHOW / HIDE STAY + PASS BUTTONS
-     ------------------------------------------------------------
-     Buttons appear ONLY when:
-     - It's our turn
-     - AND we have drawn a card
-  ============================================================ */
-  const stayBtn = document.getElementById("stay-button");
-  const passBtn = document.getElementById("pass-button");
-
-  if (state.currentPlayerId === playerId && hasDrawnThisTurn) {
-    stayBtn.style.display = "inline-block";
-    passBtn.style.display = "inline-block";
-  } else {
-    stayBtn.style.display = "none";
-    passBtn.style.display = "none";
   }
 
   /* ============================================================
      NORMAL RENDERING + SOUND/ANIMATION DETECTION
-     ------------------------------------------------------------
-     Now that state is updated and logic is handled,
-     we can safely:
-     - detect sounds
-     - animate new cards
-     - update UI
   ============================================================ */
   detectSoundAndAnimationEvents(state);
   renderDeck(state);
   renderDiscard(state);
   renderPlayers(state);
-  updateButtons(state);
+  updateButtons(state);      // <-- deck enabling/disabling happens here
   updatePauseOverlay(state);
 });
 
+   
 
 /* ============================================================
    ON CONNECT → LOAD META + JOIN ROOM
@@ -1441,6 +1424,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

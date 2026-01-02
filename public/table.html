@@ -1097,11 +1097,17 @@ function updateButtons(state) {
      SPECIAL CASE: GAME NOT STARTED (deckCount === 0)
      ------------------------------------------------------------
      The deck MUST be clickable so Player 1 can start the game.
-     We remove the disabled class entirely.
+     We remove the disabled class for Player 1.
   ============================================================ */
-  if (state.deckCount === 0) {
-    deckDiv.classList.remove("disabled");
-  } else {
+   if (state.deckCount === 0) {
+     if (playerId === 1) {
+       // Player 1 can click to start
+       deckDiv.classList.remove("disabled");
+     } else {
+       // All other players cannot click
+       deckDiv.classList.add("disabled");
+     }
+   } else {
 
     /* ============================================================
        NORMAL CASE: DECK EXISTS
@@ -1434,6 +1440,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

@@ -563,13 +563,49 @@ async function advanceTurn(roomId, options = {}) {
     [roomId]
   );
 
-  // Eligible players: not stayed (manual or auto) and not bust
+  const allPlayers = playersRes.rows;
+
+  /* ============================================================
+     CHECK IF EVERYONE EXCEPT CURRENT PLAYER HAS STAYED
+     ------------------------------------------------------------
+     If true, we must reset stayed flags and start a new cycle.
+  ============================================================ */
+  const everyoneElseStayed =
+    allPlayers.every(p => p.stayed || p.round_bust);
+
+  if (everyoneElseStayed) {
+    // Reset stayed flags for a new turn cycle
+    await pool.query(
+      `UPDATE room_players
+       SET stayed = FALSE
+       WHERE room_id = $1`,
+      [roomId]
+    );
+
+    // Reload players after reset
+    const refreshed = await pool.query(
+      `SELECT player_id, stayed, round_bust
+       FROM room_players
+       WHERE room_id = $1 AND active = TRUE
+       ORDER BY order_index ASC`,
+      [roomId]
+    );
+
+    playersRes.rows.length = 0;
+    playersRes.rows.push(...refreshed.rows);
+  }
+
+  /* ============================================================
+     FILTER ELIGIBLE PLAYERS
+     ------------------------------------------------------------
+     After resetting stayed flags, this list will be correct.
+  ============================================================ */
   const candidates = playersRes.rows.filter(
     p => !p.stayed && !p.round_bust
   );
   const players = candidates.map(p => p.player_id);
 
-  // If no candidates left, mark round over and stop
+  // If no candidates left, round is over
   if (players.length === 0) {
     await pool.query(
       `UPDATE rooms
@@ -590,10 +626,10 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Find current player index (by player_id)
+  // Find current player index
   const currentIdx = players.indexOf(room.current_player_id);
 
-  // If current player not eligible or not found, reset to first
+  // If current player not eligible, reset to first
   if (currentIdx === -1) {
     await pool.query(
       `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
@@ -1862,6 +1898,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

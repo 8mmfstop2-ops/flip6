@@ -1323,7 +1323,8 @@ function detectSoundAndAnimationEvents(state) {
   lastState = state;
 }
 
-/* ============================================================
+
+   /* ============================================================
    SOCKET STATE UPDATE
 ============================================================ */
 socket.on("stateUpdate", (state) => {
@@ -1334,36 +1335,34 @@ socket.on("stateUpdate", (state) => {
 
   /* ============================================================
      FIRST UPDATE — INITIALIZE EVERYTHING
-     ------------------------------------------------------------
-     We DO NOT return anymore. We initialize UI once,
-     but still allow turn logic to run on this same update.
   ============================================================ */
   if (!currentState) {
     currentState = state;
     lastState = state;
 
-    // Allow first click
     hasDrawnThisTurn = false;
-
-    // Deck thickness animation setup
     maxDeckSize = state.deckCount;
 
-    // Render UI immediately
     renderDeck(state);
     renderDiscard(state);
     renderPlayers(state);
     updateButtons(state);
     updatePauseOverlay(state);
-
-    // IMPORTANT: no return here — we want turn logic to run too
   }
 
   /* ============================================================
      SAVE OLD VALUES BEFORE UPDATING
-     Used to detect real draws, shuffles, etc.
   ============================================================ */
   const oldDeckCount = currentState.deckCount;
   const newDeckCount = state.deckCount;
+
+  /* ============================================================
+     FIX: DETECT NEW ROUND AND RESET TURN TRACKING
+  ============================================================ */
+  if (lastState && state.roundNumber !== lastState.roundNumber) {
+    hasDrawnThisTurn = false;
+    lastState = null; // forces turn-change detection to run correctly
+  }
 
   // Update main state reference
   currentState = state;
@@ -1377,8 +1376,6 @@ socket.on("stateUpdate", (state) => {
 
   /* ============================================================
      DETECT A REAL DRAW (server-confirmed)
-     If deckCount decreased AND it's our turn,
-     then we drew a card.
   ============================================================ */
   if (newDeckCount < oldDeckCount) {
     if (state.currentPlayerId === playerId) {
@@ -1387,23 +1384,11 @@ socket.on("stateUpdate", (state) => {
   }
 
   /* ============================================================
-     FIXED LOGIC:
-     RESET DRAW FLAG WHEN TURN CHANGES OR WHEN ONLY ONE PLAYER
-     ------------------------------------------------------------
-     Why this fix is needed:
-     - If only one player remains, the turn cycles back to them.
-     - If all players stayed, the turn cycles back to the same player.
-     - If the server sends two identical updates, the client must reset.
-     Without this fix, the client thinks "you already drew" forever.
+     RESET DRAW FLAG WHEN TURN CHANGES OR ONLY ONE PLAYER
   ============================================================ */
-
-  // Count active (non-disconnected) players
   const activePlayers = state.players.filter(p => !p.disconnected);
   const onlyOnePlayer = activePlayers.length === 1;
 
-  // Reset draw flag if:
-  // - the turn changed to a different player
-  // - OR you are the only player (turn cycles back to you)
   if (state.currentPlayerId !== playerId || onlyOnePlayer) {
     hasDrawnThisTurn = false;
   }
@@ -1415,8 +1400,11 @@ socket.on("stateUpdate", (state) => {
   renderDeck(state);
   renderDiscard(state);
   renderPlayers(state);
-  updateButtons(state);      // <-- deck enabling/disabling happens here
+  updateButtons(state);
   updatePauseOverlay(state);
+
+  // Save last state at the end
+  lastState = state;
 });
 
 
@@ -1526,6 +1514,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

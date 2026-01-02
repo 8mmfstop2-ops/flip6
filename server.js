@@ -447,6 +447,25 @@ async function playerHasSecondChance(roomId, playerId) {
   return res.rows.length > 0;
 }
 
+/**
+ * Counts NON‑ACTION cards in a player's hand.
+ * A non‑action card is any numeric card 0–12.
+ *
+ * This is used to enforce the rule:
+ *   "If a player reaches 6 non‑action cards, they automatically STAY."
+ */
+async function countNonActionCards(roomId, playerId) {
+  const res = await pool.query(
+    `SELECT COUNT(*) FROM player_hands
+     WHERE room_id = $1 AND player_id = $2
+       AND value ~ '^(?:[0-9]|1[0-2])$'`,
+    [roomId, playerId]
+  );
+
+  return parseInt(res.rows[0].count, 10);
+}
+
+
 /********************************************************************************************
  *  SECTION 5 — PAUSE / RECONNECT LOGIC
  *  -----------------------------------------------------------------------------------------
@@ -949,6 +968,28 @@ async function drawCardForPlayer(room, playerId) {
 
   // 5) Anything else → discard
   await addToDiscard(roomId, value);
+
+  // ------------------------------------------------------------
+  // NEW RULE: Auto‑stay when player reaches 6 non‑action cards
+  // ------------------------------------------------------------
+  const nonActionRes = await pool.query(
+    `SELECT COUNT(*) FROM player_hands
+     WHERE room_id = $1 AND player_id = $2
+       AND value ~ '^(?:[0-9]|1[0-2])$'`,   // <-- FIXED: numeric only
+    [roomId, playerId]
+  );
+
+  const nonActionCount = parseInt(nonActionRes.rows[0].count, 10);
+
+  if (nonActionCount >= 6) {
+    await pool.query(
+      `UPDATE room_players
+       SET stayed = TRUE
+       WHERE player_id = $1 AND room_id = $2`,
+      [playerId, roomId]
+    );
+  }
+
 }
 
 /********************************************************************************************
@@ -1672,5 +1713,6 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 

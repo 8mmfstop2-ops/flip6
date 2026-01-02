@@ -964,7 +964,7 @@ function renderDiscard(state) {
  
    
 /* ============================================================
-   RENDER PLAYERS + HANDS
+-   RENDER PLAYERS + HANDS
 ============================================================ */
 function renderPlayers(state) {
   const handsByPlayer = {};
@@ -1025,7 +1025,7 @@ function renderPlayers(state) {
 }
 
 /* ============================================================
-   TARGET SELECTION MODE
+-   TARGET SELECTION MODE
 ============================================================ */
 function applyTargetSelection(state) {
   seatIds.forEach(id => {
@@ -1080,7 +1080,7 @@ function applyTargetSelection(state) {
 }
 
 /* ============================================================
-   BUTTON ENABLE/DISABLE LOGIC
+-   BUTTON ENABLE/DISABLE LOGIC
 ============================================================ */
 function updateButtons(state) {
 
@@ -1094,19 +1094,29 @@ function updateButtons(state) {
     !state.pendingActionType;
 
   /* ============================================================
-     DECK ENABLE/DISABLE LOGIC (THE IMPORTANT PART)
+     SPECIAL CASE: GAME NOT STARTED (deckCount === 0)
      ------------------------------------------------------------
-     Deck is enabled ONLY when:
-     - It's my turn
-     - AND I have NOT drawn yet
-     - AND the deck is not empty
+     The deck MUST be clickable so Player 1 can start the game.
+     We remove the disabled class entirely.
   ============================================================ */
-  const canDrawNow = isMyTurn && !hasDrawnThisTurn && state.deckCount > 0;
+  if (state.deckCount === 0) {
+    deckDiv.classList.remove("disabled");
+  } else {
 
-  // Apply CSS class to disable deck for everyone else
-  deckDiv.classList.toggle("disabled", !canDrawNow);
+    /* ============================================================
+       NORMAL CASE: DECK EXISTS
+       ------------------------------------------------------------
+       Deck is clickable ONLY when:
+       - It's my turn
+       - AND I have NOT drawn yet
+       - AND there are cards in the deck
+    ============================================================ */
+    const canDrawNow = isMyTurn && !hasDrawnThisTurn && state.deckCount > 0;
 
-  /* ============================================================
+    deckDiv.classList.toggle("disabled", !canDrawNow);
+  }
+
+   /* ============================================================
      STAY + PASS BUTTONS
      ------------------------------------------------------------
      Buttons appear ONLY when:
@@ -1161,7 +1171,7 @@ function updateButtons(state) {
    
 
 /* ============================================================
-   PAUSE OVERLAY
+ -  PAUSE OVERLAY
 ============================================================ */
 function updatePauseOverlay(state) {
   if (state.paused) {
@@ -1174,7 +1184,7 @@ function updatePauseOverlay(state) {
 }
 
 /* ============================================================
-   SOUND + ANIMATION TRIGGERS
+ -  SOUND + ANIMATION TRIGGERS
 ============================================================ */
 function detectSoundAndAnimationEvents(state) {
   if (!lastState) {
@@ -1424,6 +1434,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

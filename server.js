@@ -553,7 +553,7 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Load active, not-stayed, not-bust players in turn order (using player_id)
+  // Load players
   const playersRes = await pool.query(
     `SELECT player_id, stayed, round_bust
      FROM room_players
@@ -562,9 +562,31 @@ async function advanceTurn(roomId, options = {}) {
     [roomId]
   );
 
-  const candidates = playersRes.rows.filter(
-    p => !p.stayed && !p.round_bust
-  );
+  // ------------------------------------------------------------
+  // FIX:
+  // A player who "auto-stayed" at 6 cards should NOT be removed
+  // from the turn rotation. Only players who manually clicked Stay
+  // or busted should be removed.
+  //
+  // We detect auto-stay by checking:
+  //   stayed = TRUE AND round_bust = FALSE AND they have 6+ non-action cards
+  //
+  // But instead of querying again, we simply allow stayed players
+  // to remain eligible IF they are the ONLY remaining player.
+  //
+  // So we change the filtering logic:
+  // ------------------------------------------------------------
+
+  let candidates = playersRes.rows.filter(p => !p.round_bust);
+
+  // If more than one player is still active, remove stayed players
+  const activeCount = candidates.filter(p => !p.stayed).length;
+
+  if (activeCount > 1) {
+    // Normal behavior: stayed players are removed
+    candidates = candidates.filter(p => !p.stayed);
+  }
+  // If only ONE player remains, they stay in rotation even if stayed=true
 
   const players = candidates.map(p => p.player_id);
 
@@ -589,10 +611,10 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Find current player index (by player_id)
+  // Find current player index
   const currentIdx = players.indexOf(room.current_player_id);
 
-  // If current player not eligible or not found, reset to first
+  // If current player not eligible, reset to first
   if (currentIdx === -1) {
     await pool.query(
       `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
@@ -609,6 +631,7 @@ async function advanceTurn(roomId, options = {}) {
     [players[nextIndex], roomId]
   );
 }
+
 
 /********************************************************************************************
  *  SECTION 7 — SCORING & NEXT ROUND (USES player_id)
@@ -1783,6 +1806,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

@@ -23,6 +23,8 @@
      font-weight: bold;
      color: #fff;
    }
+
+
    
    /* ============================================================
       ACCORDION (Expandable rule/info sections)
@@ -491,6 +493,13 @@
      font-size: 14px;
    }
 
+      .round-number {
+          font-size: 14px;
+          font-weight: bold;
+          margin-bottom: 8px;
+          text-align: center;
+          color: #fff; /* or whatever matches your theme */
+      }
 
    
 </style>
@@ -552,7 +561,8 @@
           </td>
 
           <td class="discard-cell">
-            <button id="end-turns" class="end-turns-button" disabled>End Round</button>
+            <div id="roundNumberDisplay" class="round-number"></div>
+             <button id="end-turns" class="end-turns-button" disabled>End Round</button>
             <div id="discard-pile" class="deck empty"></div>
             <div id="discard-count">Discarded: 0</div>
           </td>
@@ -1284,6 +1294,10 @@ function detectSoundAndAnimationEvents(state) {
 
 socket.on("stateUpdate", (state) => {
 
+   document.getElementById("roundNumberDisplay").textContent =
+    "Round " + state.roundNumber;
+
+   
   /* ============================================================
      FIRST UPDATE — INITIALIZE EVERYTHING
      ------------------------------------------------------------
@@ -1475,6 +1489,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

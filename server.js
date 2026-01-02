@@ -1311,52 +1311,78 @@ io.on("connection", socket => {
    *   - No pending_action_type
    *   - If deck is empty → shuffle only (no draw yet)
    */
-  socket.on("drawCard", async ({ roomCode, playerId }) => {
-    try {
-      const code = String(roomCode || "").trim().toUpperCase();
+socket.on("drawCard", async ({ roomCode, playerId }) => {
+  try {
+    const code = String(roomCode || "").trim().toUpperCase();
 
-      // Load room
-      const roomRes = await pool.query(
-        "SELECT * FROM rooms WHERE code = $1",
-        [code]
+    // Load room
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
+    if (!roomRes.rows.length) return;
+    const room = roomRes.rows[0];
+
+    // Load state
+    const state = await getState(room.id);
+    if (!state) return;
+
+    // ------------------------------------------------------------
+    // If all other players have stayed or busted,
+    //  then THIS player becomes the current player.
+    //   - PASS advances the turn away from the player
+    //   - But if everyone else is stayed, the turn must return
+    //   - Without this, the last player cannot draw anymore
+    // ------------------------------------------------------------
+    const everyoneElseStayed = state.players
+      .filter(p => p.id !== playerId)
+      .every(p => p.stayed === true || p.round_bust === true);
+
+    if (everyoneElseStayed) {
+      // Force the turn back to this player
+      await pool.query(
+        `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
+        [playerId, room.id]
       );
-      if (!roomRes.rows.length) return;
-      const room = roomRes.rows[0];
 
-      // Load state
-      const state = await getState(room.id);
-      if (!state) return;
-
-      // Validate turn
-      const isMyTurn =
-        state.currentPlayerId === playerId &&
-        !state.roundOver &&
-        !state.paused &&
-        !state.pendingActionType;
-
-      if (!isMyTurn) return;
-
-      // If deck is empty → shuffle only, do NOT draw yet
-      if (state.deckCount === 0) {
-        await ensureDeck(room.id);
-
-        // Send updated state so client plays shuffle sound
-        const shuffledState = await getState(room.id);
-        io.to(code).emit("stateUpdate", shuffledState);
-
-        return; // <-- stop here, no draw yet
-      }
-
-      // Normal draw
-      await drawCardForPlayer(room, playerId);
-
-      const newState = await getState(room.id);
-      io.to(code).emit("stateUpdate", newState);
-
-    } catch (err) {
-      console.error("drawCard error:", err);
+      // Reload state after updating turn
+      const updatedState = await getState(room.id);
+      state.currentPlayerId = updatedState.currentPlayerId;
     }
-  });
+
+    // ------------------------------------------------------------
+    // Validate turn (AFTER applying the fix above)
+    // ------------------------------------------------------------
+    const isMyTurn =
+      state.currentPlayerId === playerId &&
+      !state.roundOver &&
+      !state.paused &&
+      !state.pendingActionType;
+
+    if (!isMyTurn) return;
+
+    // If deck is empty → shuffle only, do NOT draw yet
+    if (state.deckCount === 0) {
+      await ensureDeck(room.id);
+
+      // Send updated state so client plays shuffle sound
+      const shuffledState = await getState(room.id);
+      io.to(code).emit("stateUpdate", shuffledState);
+
+      return; // <-- stop here, no draw yet
+    }
+
+    // Normal draw
+    await drawCardForPlayer(room, playerId);
+
+    const newState = await getState(room.id);
+    io.to(code).emit("stateUpdate", newState);
+
+  } catch (err) {
+    console.error("drawCard error:", err);
+  }
+});
+
 
   /**
    * STAY
@@ -1713,6 +1739,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

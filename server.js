@@ -542,21 +542,25 @@ async function recomputePause(roomId) {
 async function advanceTurn(roomId, options = {}) {
   const { forceCurrent = false } = options;
 
-  // Load room
+  /* ============================================================
+     LOAD CURRENT ROOM STATE
+  ============================================================ */
   const roomRes = await pool.query(
-    `SELECT current_player_id FROM rooms WHERE id = $1`,
+    `SELECT current_player_id, round_over
+     FROM rooms
+     WHERE id = $1`,
     [roomId]
   );
   const room = roomRes.rows[0];
 
-  // If we already set the starting player for the round, do NOT rotate
-  if (forceCurrent && room.current_player_id) {
-    return;
-  }
+  // If round is already over, do nothing
+  if (room.round_over) return;
 
-  // Load active players
+  /* ============================================================
+     LOAD ALL ACTIVE PLAYERS FOR THIS ROOM
+  ============================================================ */
   const playersRes = await pool.query(
-    `SELECT player_id, stayed, round_bust
+    `SELECT player_id, stayed, round_bust, active
      FROM room_players
      WHERE room_id = $1 AND active = TRUE
      ORDER BY order_index ASC`,
@@ -566,47 +570,20 @@ async function advanceTurn(roomId, options = {}) {
   const allPlayers = playersRes.rows;
 
   /* ============================================================
-     CHECK IF EVERYONE EXCEPT CURRENT PLAYER HAS STAYED
+     DETERMINE ELIGIBLE PLAYERS
      ------------------------------------------------------------
-     If true, we must reset stayed flags and start a new cycle.
+     Eligible = NOT stayed AND NOT busted
+     These are the players who can still take a turn.
   ============================================================ */
-  const everyoneElseStayed =
-    allPlayers.every(p => p.stayed || p.round_bust);
-
-  if (everyoneElseStayed) {
-    // Reset stayed flags for a new turn cycle
-    await pool.query(
-      `UPDATE room_players
-       SET stayed = FALSE
-       WHERE room_id = $1`,
-      [roomId]
-    );
-
-    // Reload players after reset
-    const refreshed = await pool.query(
-      `SELECT player_id, stayed, round_bust
-       FROM room_players
-       WHERE room_id = $1 AND active = TRUE
-       ORDER BY order_index ASC`,
-      [roomId]
-    );
-
-    playersRes.rows.length = 0;
-    playersRes.rows.push(...refreshed.rows);
-  }
+  let eligible = allPlayers.filter(p => !p.stayed && !p.round_bust);
 
   /* ============================================================
-     FILTER ELIGIBLE PLAYERS
+     CASE 1: NO ELIGIBLE PLAYERS LEFT
      ------------------------------------------------------------
-     After resetting stayed flags, this list will be correct.
+     Everyone either stayed or busted.
+     → Round is over.
   ============================================================ */
-  const candidates = playersRes.rows.filter(
-    p => !p.stayed && !p.round_bust
-  );
-  const players = candidates.map(p => p.player_id);
-
-  // If no candidates left, round is over
-  if (players.length === 0) {
+  if (eligible.length === 0) {
     await pool.query(
       `UPDATE rooms
        SET round_over = TRUE,
@@ -617,36 +594,95 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // If no current player, start with first
+  /* ============================================================
+     CASE 2: FIRST TURN OF THE ROUND
+     ------------------------------------------------------------
+     If no current player is set, start with the first eligible.
+  ============================================================ */
   if (!room.current_player_id) {
     await pool.query(
-      `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
-      [players[0], roomId]
+      `UPDATE rooms
+       SET current_player_id = $1
+       WHERE id = $2`,
+      [eligible[0].player_id, roomId]
     );
     return;
   }
 
-  // Find current player index
-  const currentIdx = players.indexOf(room.current_player_id);
+  /* ============================================================
+     FIND CURRENT PLAYER IN ELIGIBLE LIST
+  ============================================================ */
+  const currentIdx = eligible.findIndex(
+    p => p.player_id === room.current_player_id
+  );
 
-  // If current player not eligible, reset to first
+  /* ============================================================
+     CASE 3: CURRENT PLAYER IS NO LONGER ELIGIBLE
+     ------------------------------------------------------------
+     (They stayed or busted)
+     → Move to first eligible player.
+  ============================================================ */
   if (currentIdx === -1) {
     await pool.query(
-      `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
-      [players[0], roomId]
+      `UPDATE rooms
+       SET current_player_id = $1
+       WHERE id = $2`,
+      [eligible[0].player_id, roomId]
     );
     return;
   }
 
-  // Rotate to next eligible player
-  const nextIndex = (currentIdx + 1) % players.length;
+  /* ============================================================
+     CASE 4: CHECK IF EVERYONE ELSE HAS STAYED
+     ------------------------------------------------------------
+     If all other players stayed or busted, we must:
+     - Reset stayed flags for OTHER players
+     - Keep current player's stayed flag (if any)
+     - Start a new turn cycle
+  ============================================================ */
+  const everyoneElseStayed =
+    allPlayers.every(p =>
+      p.player_id === room.current_player_id || p.stayed || p.round_bust
+    );
+
+  if (everyoneElseStayed) {
+    // Reset stayed flags for all EXCEPT current player
+    await pool.query(
+      `UPDATE room_players
+       SET stayed = FALSE
+       WHERE room_id = $1
+         AND player_id != $2`,
+      [roomId, room.current_player_id]
+    );
+
+    // Reload eligible players after reset
+    const refreshed = await pool.query(
+      `SELECT player_id, stayed, round_bust
+       FROM room_players
+       WHERE room_id = $1 AND active = TRUE
+       ORDER BY order_index ASC`,
+      [roomId]
+    );
+
+    eligible = refreshed.rows.filter(p => !p.stayed && !p.round_bust);
+  }
+
+  /* ============================================================
+     CASE 5: NORMAL TURN ROTATION
+     ------------------------------------------------------------
+     Move to the next eligible player.
+     If only one eligible player exists, this loops back to them.
+  ============================================================ */
+  const newIdx = (currentIdx + 1) % eligible.length;
+  const nextPlayerId = eligible[newIdx].player_id;
 
   await pool.query(
-    `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
-    [players[nextIndex], roomId]
+    `UPDATE rooms
+     SET current_player_id = $1
+     WHERE id = $2`,
+    [nextPlayerId, roomId]
   );
 }
-
 
 
 /********************************************************************************************
@@ -1898,6 +1934,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

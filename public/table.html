@@ -1208,8 +1208,22 @@ function detectSoundAndAnimationEvents(state) {
    SOCKET STATE UPDATE
 ============================================================ */
 socket.on("stateUpdate", (state) => {
+
+  // FIRST UPDATE: render immediately and skip logic
+  if (!currentState) {
+    currentState = state;
+
+    renderDeck(state);
+    renderDiscard(state);
+    renderPlayers(state);
+    updateButtons(state);
+    updatePauseOverlay(state);
+
+    return;
+  }
+
   // Keep old deck count BEFORE overwriting currentState
-  const oldDeckCount = currentState ? currentState.deckCount : null;
+  const oldDeckCount = currentState.deckCount;
   const newDeckCount = state.deckCount;
 
   currentState = state;
@@ -1222,11 +1236,10 @@ socket.on("stateUpdate", (state) => {
   /* ============================================================
      DETECT A REAL DRAW (server-confirmed)
   ============================================================ */
-  if (oldDeckCount !== null && newDeckCount < oldDeckCount) {
+  if (newDeckCount < oldDeckCount) {
     if (state.currentPlayerId === playerId) {
       hasDrawnThisTurn = true;
 
-      // Disable deck after drawing
       const deckDiv = document.getElementById("deck");
       deckDiv.style.pointerEvents = "none";
       deckDiv.style.opacity = "0.5";
@@ -1239,7 +1252,6 @@ socket.on("stateUpdate", (state) => {
   if (state.currentPlayerId !== playerId) {
     hasDrawnThisTurn = false;
 
-    // Re-enable deck for the next time it's your turn
     const deckDiv = document.getElementById("deck");
     deckDiv.style.pointerEvents = "auto";
     deckDiv.style.opacity = "1";
@@ -1376,6 +1388,7 @@ statusDiv.textContent = "Connecting to room…";
 
 </body>
 </html>
+
 
 
 

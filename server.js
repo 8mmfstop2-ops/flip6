@@ -111,7 +111,7 @@ const pool = new Pool({
         socket_id TEXT,
         connected BOOLEAN NOT NULL DEFAULT TRUE,
         round_bust BOOLEAN NOT NULL DEFAULT FALSE,
-        auto_stayed BOOLEAN NOT NULL DEFAULT FALSE;
+        auto_stayed BOOLEAN NOT NULL DEFAULT FALSE
       );
     `);
 
@@ -554,7 +554,7 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Load players
+  // Load active players
   const playersRes = await pool.query(
     `SELECT player_id, stayed, round_bust
      FROM room_players
@@ -563,32 +563,10 @@ async function advanceTurn(roomId, options = {}) {
     [roomId]
   );
 
-  // ------------------------------------------------------------
-  // FIX:
-  // A player who "auto-stayed" at 6 cards should NOT be removed
-  // from the turn rotation. Only players who manually clicked Stay
-  // or busted should be removed.
-  //
-  // We detect auto-stay by checking:
-  //   stayed = TRUE AND round_bust = FALSE AND they have 6+ non-action cards
-  //
-  // But instead of querying again, we simply allow stayed players
-  // to remain eligible IF they are the ONLY remaining player.
-  //
-  // So we change the filtering logic:
-  // ------------------------------------------------------------
-
-  let candidates = playersRes.rows.filter(p => !p.round_bust);
-
-  // If more than one player is still active, remove stayed players
-  const activeCount = candidates.filter(p => !p.stayed).length;
-
-  if (activeCount > 1) {
-    // Normal behavior: stayed players are removed
-    candidates = candidates.filter(p => !p.stayed);
-  }
-  // If only ONE player remains, they stay in rotation even if stayed=true
-
+  // Eligible players: not stayed (manual or auto) and not bust
+  const candidates = playersRes.rows.filter(
+    p => !p.stayed && !p.round_bust
+  );
   const players = candidates.map(p => p.player_id);
 
   // If no candidates left, mark round over and stop
@@ -612,10 +590,10 @@ async function advanceTurn(roomId, options = {}) {
     return;
   }
 
-  // Find current player index
+  // Find current player index (by player_id)
   const currentIdx = players.indexOf(room.current_player_id);
 
-  // If current player not eligible, reset to first
+  // If current player not eligible or not found, reset to first
   if (currentIdx === -1) {
     await pool.query(
       `UPDATE rooms SET current_player_id = $1 WHERE id = $2`,
@@ -632,6 +610,7 @@ async function advanceTurn(roomId, options = {}) {
     [players[nextIndex], roomId]
   );
 }
+
 
 
 /********************************************************************************************
@@ -776,9 +755,10 @@ async function endRound(roomId) {
   await pool.query("DELETE FROM player_hands WHERE room_id = $1", [roomId]);
 
   await pool.query(
-    "UPDATE room_players SET stayed = FALSE, round_bust = FALSE WHERE room_id = $1",
+    "UPDATE room_players SET stayed = FALSE, round_bust = FALSE, auto_stayed = FALSE WHERE room_id = $1",
     [roomId]
   );
+
 
   await pool.query(
     `UPDATE rooms
@@ -828,7 +808,7 @@ async function getState(roomId) {
   const room = roomRes.rows[0];
 
   const playersRes = await pool.query(
-    `SELECT player_id AS id, name, order_index, active, stayed, total_score, connected, round_bust
+    `SELECT player_id AS id, name, order_index, active, stayed, total_score, connected, round_bust, auto_stayed
      FROM room_players
      WHERE room_id = $1
      ORDER BY order_index ASC`,
@@ -916,20 +896,25 @@ async function getState(roomId) {
  *    - Room locking on first draw
  *    - Respecting pending_action_type
  ********************************************************************************************/
-
 async function drawCardForPlayer(room, playerId) {
   const roomId = room.id;
 
-  // Always reload latest room state: the passed-in room can be stale.
+  // Always reload latest pending_action_type: room object can be stale.
   const freshRoomRes = await pool.query(
     "SELECT pending_action_type FROM rooms WHERE id = $1",
     [roomId]
   );
   const freshRoom = freshRoomRes.rows[0];
 
-  // If ANY pending action exists (Freeze, Swap, Take3, SecondChancePrompt, etc.)
-  // the player is NOT allowed to draw.
+  // If ANY pending action exists, the player is NOT allowed to draw.
   if (freshRoom.pending_action_type) {
+    return;
+  }
+
+  // HARD ENFORCEMENT:
+  // If player already has 6+ non-action cards, do NOT allow any further draw.
+  const preCount = await countNonActionCards(roomId, playerId);
+  if (preCount >= 6) {
     return;
   }
 
@@ -952,6 +937,7 @@ async function drawCardForPlayer(room, playerId) {
   if (isNumber) {
     await addToHand(roomId, playerId, value);
 
+    // Check for duplicate (bust logic)
     const dupRes = await pool.query(
       `SELECT COUNT(*) FROM player_hands
        WHERE room_id = $1 AND player_id = $2 AND value = $3`,
@@ -964,7 +950,7 @@ async function drawCardForPlayer(room, playerId) {
       const hasSecondChance = await playerHasSecondChance(roomId, playerId);
 
       if (hasSecondChance) {
-        // Second Chance should prompt YES/NO, not target selection
+        // Second Chance prompts YES/NO
         await pool.query(
           `UPDATE rooms
            SET pending_action_type = 'SecondChancePrompt',
@@ -975,15 +961,31 @@ async function drawCardForPlayer(room, playerId) {
         );
         return;
       } else {
-        // Bust: mark this player as bust + stayed (by player_id)
+        // Bust: stayed + round_bust, not auto_stayed
         await pool.query(
           `UPDATE room_players
-           SET stayed = TRUE, round_bust = TRUE
+           SET stayed = TRUE, round_bust = TRUE, auto_stayed = FALSE
            WHERE player_id = $1 AND room_id = $2`,
           [playerId, roomId]
         );
         return;
       }
+    }
+
+    // After a safe numeric draw, enforce 6‑card rule
+    const nonActionCount = await countNonActionCards(roomId, playerId);
+
+    if (nonActionCount >= 6) {
+      // Auto-stay at 6+
+      await pool.query(
+        `UPDATE room_players
+         SET stayed = TRUE, auto_stayed = TRUE
+         WHERE player_id = $1 AND room_id = $2`,
+        [playerId, roomId]
+      );
+
+      // Move to next eligible player (or end round if none)
+      await advanceTurn(roomId);
     }
 
     return;
@@ -1024,29 +1026,8 @@ async function drawCardForPlayer(room, playerId) {
 
   // 5) Anything else → discard
   await addToDiscard(roomId, value);
-
-  // ------------------------------------------------------------
-  // NEW RULE: Auto‑stay when player reaches 6 non‑action cards
-  // ------------------------------------------------------------
-  const nonActionRes = await pool.query(
-    `SELECT COUNT(*) FROM player_hands
-     WHERE room_id = $1 AND player_id = $2
-       AND value ~ '^(?:[0-9]|1[0-2])$'`,   // <-- FIXED: numeric only
-    [roomId, playerId]
-  );
-
-  const nonActionCount = parseInt(nonActionRes.rows[0].count, 10);
-
-  if (nonActionCount >= 6) {
-    await pool.query(
-      `UPDATE room_players
-       SET stayed = TRUE
-       WHERE player_id = $1 AND room_id = $2`,
-      [playerId, roomId]
-    );
-  }
-
 }
+
 
 /********************************************************************************************
  *  SECTION 10 — EXPRESS ROUTES (REST API)
@@ -1458,55 +1439,99 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
    *   - Clears any pending action
    *   - Advances turn
    */
-  socket.on("stay", async ({ roomCode, playerId }) => {
-    try {
-      const code = String(roomCode || "").trim().toUpperCase();
+/**
+ * STAY
+ *   - Marks player as manually stayed (stayed = TRUE, auto_stayed = FALSE)
+ *   - Clears any pending action
+ *   - Advances turn
+ *   - If all players have stayed or busted, advanceTurn() will mark round_over = TRUE
+ */
+socket.on("stay", async ({ roomCode, playerId }) => {
+  try {
+    const code = String(roomCode || "").trim().toUpperCase();
 
-      const roomRes = await pool.query(
-        "SELECT * FROM rooms WHERE code = $1",
-        [code]
-      );
-      if (!roomRes.rows.length) return;
-      const room = roomRes.rows[0];
+    // Load room
+    const roomRes = await pool.query(
+      "SELECT * FROM rooms WHERE code = $1",
+      [code]
+    );
+    if (!roomRes.rows.length) return;
+    const room = roomRes.rows[0];
 
-      const state = await getState(room.id);
-      if (!state) return;
+    // Load full state snapshot
+    const state = await getState(room.id);
+    if (!state) return;
 
-      const isMyTurn =
-        state.currentPlayerId === playerId &&
-        !state.roundOver &&
-        !state.paused &&
-        !state.pendingActionType;
+    // ------------------------------------------------------------
+    // VALIDATE TURN
+    // Player may only stay if:
+    //   - It is their turn
+    //   - Round is not over
+    //   - Game is not paused
+    //   - No pending action is blocking the turn
+    // ------------------------------------------------------------
+    const isMyTurn =
+      state.currentPlayerId === playerId &&
+      !state.roundOver &&
+      !state.paused &&
+      !state.pendingActionType;
 
-      if (!isMyTurn) return;
+    if (!isMyTurn) return;
 
-      // Clear any pending action (including "DREW" or SecondChancePrompt)
-      await pool.query(
-        `UPDATE rooms
-         SET pending_action_type = NULL,
-             pending_action_actor_id = NULL,
-             pending_action_value = NULL
-         WHERE id = $1`,
-        [room.id]
-      );
+    // ------------------------------------------------------------
+    // CLEAR ANY PENDING ACTION
+    // This includes:
+    //   - Freeze
+    //   - Swap
+    //   - Take3
+    //   - SecondChancePrompt
+    //   - "DREW" (legacy)
+    // ------------------------------------------------------------
+    await pool.query(
+      `UPDATE rooms
+       SET pending_action_type = NULL,
+           pending_action_actor_id = NULL,
+           pending_action_value = NULL
+       WHERE id = $1`,
+      [room.id]
+    );
 
-      // Mark player as stayed
-      await pool.query(
-        `UPDATE room_players
-         SET stayed = TRUE
-         WHERE player_id = $1 AND room_id = $2`,
-        [playerId, room.id]
-      );
+    // ------------------------------------------------------------
+    // MARK PLAYER AS MANUALLY STAYED
+    //
+    // IMPORTANT:
+    //   stayed = TRUE        → player is done for the round
+    //   auto_stayed = FALSE  → this was a manual stay, not a 6‑card auto‑stay
+    //
+    // Auto‑stay is handled in drawCardForPlayer() only.
+    // ------------------------------------------------------------
+    await pool.query(
+      `UPDATE room_players
+       SET stayed = TRUE,
+           auto_stayed = FALSE
+       WHERE player_id = $1 AND room_id = $2`,
+      [playerId, room.id]
+    );
 
-      // Advance to next player
-      await advanceTurn(room.id);
+    // ------------------------------------------------------------
+    // ADVANCE TURN
+    //
+    // advanceTurn() will:
+    //   - Skip stayed and busted players
+    //   - Move to next eligible player
+    //   - If none remain, set round_over = TRUE
+    // ------------------------------------------------------------
+    await advanceTurn(room.id);
 
-      const newState = await getState(room.id);
-      io.to(code).emit("stateUpdate", newState);
-    } catch (err) {
-      console.error("stay error:", err);
-    }
-  });
+    // Send updated state to all players
+    const newState = await getState(room.id);
+    io.to(code).emit("stateUpdate", newState);
+
+  } catch (err) {
+    console.error("stay error:", err);
+  }
+});
+
 
   /**
    * PASS
@@ -1607,13 +1632,16 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
       }
 
       if (action === "Freeze") {
+        // Freeze forces a manual stay, NOT an auto-stay.
         await pool.query(
           `UPDATE room_players
-           SET stayed = TRUE
+           SET stayed = TRUE,
+               auto_stayed = FALSE
            WHERE player_id = $1 AND room_id = $2`,
           [targetId, room.id]
         );
       }
+
 
       if (action === "Swap") {
         await pool.query(
@@ -1704,7 +1732,7 @@ socket.on("drawCard", async ({ roomCode, playerId }) => {
         // Player chooses NOT to use Second Chance → they bust
         await pool.query(
           `UPDATE room_players
-           SET stayed = TRUE, round_bust = TRUE
+           SET stayed = TRUE, round_bust = TRUE, auto_stayed = FALSE
            WHERE player_id = $1 AND room_id = $2`,
           [playerId, room.id]
         );
@@ -1807,6 +1835,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

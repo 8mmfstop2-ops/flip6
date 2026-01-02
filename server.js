@@ -110,7 +110,8 @@ const pool = new Pool({
         total_score INT NOT NULL DEFAULT 0,
         socket_id TEXT,
         connected BOOLEAN NOT NULL DEFAULT TRUE,
-        round_bust BOOLEAN NOT NULL DEFAULT FALSE
+        round_bust BOOLEAN NOT NULL DEFAULT FALSE,
+        auto_stayed BOOLEAN NOT NULL DEFAULT FALSE;
       );
     `);
 
@@ -1806,6 +1807,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log("Flip‑to‑6 server running on port", PORT)
 );
+
 
 
 

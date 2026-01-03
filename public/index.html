@@ -1,65 +1,349 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Simple Readme Test</title>
+  <meta charset="utf-8" />
+  <title>Player Login — Flip to 6 v1.0.1</title>
 
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #222;
-      color: #fff;
-      text-align: center;
-      padding-top: 60px;
+    /* ============================================================
+       PAGE LAYOUT
+       - Fullscreen centered layout
+       - Soft green background
+    ============================================================ */
+    body { 
+      font-family: Arial, sans-serif; 
+      background:#e8f5e9; 
+      display:flex; 
+      justify-content:center; 
+      align-items:center; 
+      min-height:100vh; 
+      margin:0; 
     }
 
+    /* ============================================================
+       LOGIN CARD CONTAINER
+       - Holds the entire login UI
+       - Uses a background image (flip6-login.png)
+       - Positioned like a physical card
+    ============================================================ */
+    .card {
+      position: relative;
+      background:#f8f7e9;
+      background-image: url('flip6-login.png');
+      background-size: cover;
+      background-position: center;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      width: 100%;
+      max-width: 600px;
+      min-height: 800px;
+      padding: 10px;
+
+      /* Flexbox layout: stack elements vertically */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end; /* Push form toward bottom */
+    }
+
+    /* ============================================================
+       MAIN TITLE
+       - White glowing text
+       - Positioned above the form
+    ============================================================ */
     h1 {
-      margin-bottom: 30px;
-    }
-
-    button {
-      padding: 12px 22px;
-      font-size: 18px;
-      cursor: pointer;
-      border-radius: 6px;
-      border: none;
-      background: #4CAF50;
       color: white;
-      transition: background 0.2s ease;
+      font-weight: 900;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      margin-bottom: 40px;
+      font-size: 32px;
     }
 
-    button:hover {
-      background: #45a049;
+    /* ============================================================
+       FORM AREA WRAPPER
+       - Holds the name + room code fields
+    ============================================================ */
+    .form-area {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding-bottom: 80px; /* Creates space above the Join button */
     }
 
-    #output {
-      margin-top: 25px;
-      font-size: 24px;
+    /* ============================================================
+       ROW LAYOUT
+       - Places name + room code side by side
+    ============================================================ */
+    .row {
+      display: flex;
+      gap: 50px;
+    }
+
+    /* ============================================================
+       NAME INPUT BOX
+       - Larger width
+       - Styled text shadow for readability
+    ============================================================ */
+    .name-box {
+      width: 260px;
+      margin-left: 44px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      font-size: 22px; 
       font-weight: bold;
-      color: #93FF7D;
+    }
+
+    /* ============================================================
+       ROOM CODE INPUT BOX
+       - Slightly smaller width
+    ============================================================ */
+    .room-box {
+      width: 175px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      font-size: 22px; 
+      font-weight: bold;
+    }
+
+    /* Label styling */
+    .row label {
+      color: white;
+      font-weight: bold;
+    }
+
+    /* Input styling */
+    .row input {
+      width: 100%;
+      font-size: 18px;
+      padding:6px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+
+    /* ============================================================
+       JOIN BUTTON
+       - Positioned at bottom of card
+       - Large, centered, green button
+    ============================================================ */
+    .card button {
+      position: absolute;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80%;
+      padding: 16px;
+      font-size: 20px;
+      background: #2e7d32;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .card button:hover {
+      background:#F76ACF; /* Pink hover effect */
+    }
+
+    /* ============================================================
+       SETTINGS ICON (⚙️)
+       - Opens admin-login.html
+       - Positioned top-right
+    ============================================================ */
+    .settings-icon {
+      position: absolute;
+      top: 30px;
+      right: 30px;  
+      font-size: 40px;
+      font-weight: 900;
+      text-shadow: 0 0 4px rgba(0,0,0,0.6);
+      cursor: pointer;
+      user-select: none;
+    }
+  
+    /* ============================================================
+       ERROR MESSAGE BOX
+       - Hidden by default
+       - Appears when validation fails or server returns error
+    ============================================================ */
+    #msg {
+      display: none;
+      background: rgba(255, 0, 0, 0.25);
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      text-align: center;
+      margin: 40px auto 10px auto;
+      width: 80%;
+      backdrop-filter: blur(2px);
     }
   </style>
 </head>
 
 <body>
 
-  <h1>Database Readme Test</h1>
+  <!-- ============================================================
+       MAIN LOGIN CARD
+  ============================================================ -->
+  <div class="card">
 
-  <button id="loadBtn">Load Readme Text</button>
+    <!-- Settings button (opens admin page) -->
+    <div class="settings-icon" id="settingsBtn">⚙️</div>
 
-  <div id="output"></div>
+    <!-- Error message area -->
+    <div id="msg"></div>
+    
+    <!-- Page title -->
+    <h1>Player Login</h1>
 
+    <!-- ============================================================
+         FORM INPUT AREA
+         - Name field
+         - Room code field
+    ============================================================ -->
+    <div class="form-area">
+      <div class="row">
+
+        <!-- Player Name -->
+        <div class="name-box">
+          <label>Your Name</label>
+          <input id="name" placeholder="Enter your name" name="name" required />
+        </div>
+
+        <!-- Room Code -->
+        <div class="room-box">
+          <label>Room Code</label>
+          <input id="roomCode" placeholder="e.g. RM92A" name="roomCode" required />
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Join button -->
+    <button id="joinBtn">Join Game Room</button>
+
+    <!-- Attribution footer -->
+    <span style="
+      font-size:0.75em;
+      color:#666;
+      background: rgba(255, 255, 255, 0.4);
+      padding: 4px 6px;
+      border-radius: 4px;
+      width: 80%;
+      display: block;
+      text-align: center;
+      margin-top: 20px;
+    ">
+      This game is inspired by Flip 7, created by Eric Olsen. It is an independent project and is not affiliated with, endorsed by, or sponsored by Eric Olsen.
+    </span>
+  </div>
+
+  <!-- ============================================================
+       JAVASCRIPT SECTION
+       - Input sanitization
+       - Join button logic
+       - Deck initialization check
+       - Settings button
+  ============================================================ -->
   <script>
-    document.getElementById("loadBtn").addEventListener("click", async () => {
+
+    /* ------------------------------------------------------------
+       Sanitization helpers
+       - Prevents invalid characters
+       - Limits length
+    ------------------------------------------------------------ */
+    function sanitizeName(input) {
+      return input.replace(/[^A-Za-z0-9 _-]/g, "").substring(0, 20);
+    }
+
+    function sanitizeRoomCode(input) {
+      return input.replace(/[^A-Za-z0-9]/g, "").substring(0, 10).toUpperCase();
+    }
+
+    /* ------------------------------------------------------------
+       ensureDeckInitialized()
+       - Checks if card_types table is empty
+       - If empty → calls /api/init-deck to populate it
+       - Prevents game from starting without a deck
+    ------------------------------------------------------------ */
+    async function ensureDeckInitialized() {
       try {
-        const res = await fetch("/api/readme");
+        const res = await fetch("/api/cards/meta");
         const data = await res.json();
-        document.getElementById("output").textContent = data.text;
+
+        if (!data.success || !data.cards || data.cards.length === 0) {
+          console.log("Initializing card_types...");
+          await fetch("/api/init-deck", { method: "POST" });
+        }
       } catch (err) {
-        document.getElementById("output").textContent = "Error loading text.";
+        console.error("Error checking deck initialization:", err);
+      }
+    }
+
+    /* ------------------------------------------------------------
+       JOIN BUTTON CLICK HANDLER
+       - Validates inputs
+       - Sends POST /api/player/join
+       - Redirects to game room on success
+    ------------------------------------------------------------ */
+    document.getElementById("joinBtn").addEventListener("click", async () => {
+      const msg = document.getElementById("msg");
+
+      const rawName = document.getElementById("name").value.trim();
+      const rawRoom = document.getElementById("roomCode").value.trim();
+
+      const name = sanitizeName(rawName);
+      const roomCode = sanitizeRoomCode(rawRoom);
+
+      msg.textContent = "";
+      msg.style.display = "none";
+
+      // Basic validation
+      if (!name || !roomCode) {
+        msg.textContent = "Please enter both name and room code.";
+        msg.style.display = "block";
+        return;
+      }
+
+      try {
+        // Send join request to server
+        const res = await fetch("/api/player/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, roomCode })
+        });
+
+        const data = await res.json();
+
+        // Server returned an error
+        if (!res.ok) {
+          msg.textContent = data.error || "Unable to join room.";
+          msg.style.display = "block";
+          return;
+        }
+
+        // Success → redirect to game room
+        window.location.href = data.redirect;
+
+      } catch (err) {
+        msg.textContent = "Network error. Try again.";
+        msg.style.display = "block";
       }
     });
-  </script>
 
+    /* ------------------------------------------------------------
+       SETTINGS BUTTON
+       - Opens admin login page in new tab
+    ------------------------------------------------------------ */
+    document.getElementById("settingsBtn").addEventListener("click", () => {
+      window.open("admin-login.html", "_blank");
+    });
+
+    /* ------------------------------------------------------------
+       Initialize deck on page load
+    ------------------------------------------------------------ */
+    ensureDeckInitialized();
+
+  </script>
 </body>
 </html>
